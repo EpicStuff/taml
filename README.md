@@ -22,3 +22,7 @@ with
 ```python
 from taml import taml
 ```
+
+## Note to self
+
+- upload with `python -m build` then `python -m dotenv run -- twine upload --skip-existing dist/*`

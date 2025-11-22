@@ -1,17 +1,17 @@
 import re
 from io import StringIO, TextIOWrapper
 from pathlib import Path
-from typing import Any, Optional, Text, Union
+from typing import Any
 from collections.abc import Callable
 
 import ruamel.yaml as raml
-from epicstuff import open, Dict
-from ruamel.yaml.comments import CommentedMap
+from epicstuff import open, Dict  # noqa: A004  # pylint: disable=redefined-builtin
 
 
 class TAML(raml.YAML):
-	def __init__(self: Any, *, typ: Optional[Union[list[Text], Text]] = None, pure: Any = False, output: Any = None, plug_ins: Any = None) -> None:
-		'''
+	def __init__(self: Any, *, typ: list[str] | str | None = None, pure: Any = False, output: Any = None, plug_ins: Any = None) -> None:
+		'''__init__.
+
 		typ: 'rt'/None -> RoundTripLoader/RoundTripDumper,  (default)
 			'safe'    -> SafeLoader/SafeDumper,
 			'unsafe'  -> normal/unsafe Loader/Dumper (pending deprecation)
@@ -24,10 +24,11 @@ class TAML(raml.YAML):
 		super().__init__(typ=typ, pure=pure, output=output, plug_ins=plug_ins)
 
 		self.indent(mapping=2, sequence=2, offset=2)
-		# self.default_flow_style = None
+		self.default_flow_style = None
 		# self.width = 4096
-	def load(self, stream: Union[str, Path, TextIOWrapper]) -> CommentedMap:
-		'''
+	def load(self, stream: str | Path | TextIOWrapper | StringIO) -> Dict:
+		'''Load file.
+
 		at this point you either have the non-pure Parser (which has its own reader and
 		scanner) or you have the pure Parser.
 		If the pure Parser is set, then set the Reader and Scanner, if not already set.
@@ -48,8 +49,9 @@ class TAML(raml.YAML):
 		file = re.sub(r'(?<=\n)(\t+)', lambda match: '  ' * len(match.group(1)), file)
 
 		return Dict(super().load(StringIO(''.join(file))), _convert=False)
-
-	def dump(self, data, stream: Any = Union[str, Path, TextIOWrapper], *, transform: Callable = None) -> None:
+	def loads(self, stream: str) -> Dict:
+		return self.load(StringIO(stream))
+	def dump(self, data, stream: Any = str | Path | TextIOWrapper, *, transform: Callable | None = None) -> None:
 		# create temporary "text file"
 		tmp = StringIO()
 
