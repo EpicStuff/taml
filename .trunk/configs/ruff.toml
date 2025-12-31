@@ -1,0 +1,63 @@
+target-version = "py313"
+
+[lint]
+# Generic, formatter-friendly config.
+select = ["ALL"]
+# Never enforce `E501` (line length violations). This should be handled by formatters.
+ignore = [
+	# "ANN",
+	"ANN003",
+	"ANN401",
+	# "B607",
+	"D100",
+	"D101",
+	"D102",
+	"D103",
+	"D104",
+	"D105",
+	"D107",
+	"D206",
+	# "D209",
+	"D300",
+	# "D400",
+	# "D401",
+	# "D415",
+	"E401",
+	"E501",
+	"E701",
+	"E702",
+	"EM101",
+	"ERA001",
+	"EXE002",
+	"FBT",
+	# "FIX002",
+	"I001",
+	"PLW0603",
+	"Q000",
+	"Q001",
+	"Q002",
+	# "RUF013",
+	"N813",
+	"PGH003",
+	"PLR2004",
+	"S101",
+	"SIM117",
+	"SLF001",
+	"T201",
+	"TD002",
+	"TD003",
+	"TD005",
+	"TRY003",
+	"W191",
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = ["I001"]
+
+[format]
+indent-style = "tab"
+quote-style = "single"
+
+[lint.pylint]
+max-args = 8

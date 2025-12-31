@@ -2,8 +2,11 @@
 build-backend = "setuptools.build_meta"
 requires = ["setuptools>=61.0"]
 [project]
-authors = [{name = "EpicStuff", email = "EpicStuff@users.noreply.github.com"}]
-classifiers = ["Operating System :: OS Independent", "Programming Language :: Python :: 3"]
+authors = [{email = "EpicStuff@users.noreply.github.com", name = "EpicStuff"}]
+classifiers = [
+	"Operating System :: OS Independent",
+	"Programming Language :: Python :: 3",
+]
 dependencies = ["epicstuff", "ruamel.yaml==0.18.10"]
 description = "YAML but with tabs"
 name = "taml"

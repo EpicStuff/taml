@@ -1,11 +1,11 @@
 import re
+from collections import UserDict, abc
 from io import StringIO, TextIOWrapper
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 import ruamel.yaml as raml
-from epicstuff import open, Dict  # noqa: A004  # pylint: disable=redefined-builtin
+from epicstuff import Dict, JDict, open  # noqa: A004
 
 
 class TAML(raml.YAML):
@@ -25,7 +25,7 @@ class TAML(raml.YAML):
 
 		self.indent(mapping=2, sequence=2, offset=2)
 		self.default_flow_style = None
-		# self.width = 4096
+		self.width = 160
 	def load(self, stream: str | Path | TextIOWrapper | StringIO) -> Dict:
 		'''Load file.
 
@@ -40,7 +40,7 @@ class TAML(raml.YAML):
 		if isinstance(stream, (str, Path)):
 			with open(stream, 'r') as f:
 				file = f.read()
-		elif isinstance(stream, TextIOWrapper):
+		elif isinstance(stream, (TextIOWrapper, StringIO)):
 			file = stream.read()
 		else:
 			raise TypeError
@@ -51,13 +51,17 @@ class TAML(raml.YAML):
 		return Dict(super().load(StringIO(''.join(file))), _convert=False)
 	def loads(self, stream: str) -> Dict:
 		return self.load(StringIO(stream))
-	def dump(self, data, stream: Any = str | Path | TextIOWrapper, *, transform: Callable | None = None) -> None:
+	def dump(self, data: Any, stream: Any = str | Path | TextIOWrapper, *, transform: abc.Callable | None = None) -> None:
 		# create temporary "text file"
 		tmp = StringIO()
 
 		# dump to tmp
 		if self.map_indent != 2 or self.sequence_indent != 2 or self.sequence_dash_offset != 2:
 			print('warning: changing indentation may cause this to not work')
+		if isinstance(data, JDict):
+			data = data._t  # dump underlying dict
+		if isinstance(data, UserDict):
+			data = data.data  # dump underlying dict
 		super().dump(data, tmp, transform=transform)
 		tmp.seek(0)
 
