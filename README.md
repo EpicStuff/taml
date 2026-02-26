@@ -23,6 +23,38 @@ with
 from taml import taml
 ```
 
+## Additional Features
+
+you can use a separate taml file or dict to type the taml
+
+```yaml
+a:
+	a: 3
+	b: 956579776
+	c:
+		- 1
+		- 2
+		- 3
+	d:
+		- 1.12345
+		- 2
+		- {'a': 1}
+		- 4
+```
+
+and
+
+```yaml
+a:
+	b: datetime.datetime.fromtimestamp(tz=datetime.timezone.utc)
+	c: tuple
+	d:
+		- round(ndigits=2)
+		- null
+		- epicstuff.Dict(b='1')  # make sure b stays str during resolve
+		- str
+```
+
 ## Note to self
 
 - upload with `python -m build` then `python -m dotenv run -- twine upload --skip-existing dist/*`

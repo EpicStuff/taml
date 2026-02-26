@@ -1,0 +1,13 @@
+a:
+	a: 3
+	b: 956579776
+	c:
+		- 1
+		- 2
+		- 3  # this is a comment
+# this is another comment
+	d:
+		- 1.12345
+		- 2
+		- {'a': 1}
+		- 4
