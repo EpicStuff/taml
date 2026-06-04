@@ -58,3 +58,11 @@ a:
 ## Note to self
 
 - upload with `python -m build` then `python -m dotenv run -- twine upload --skip-existing dist/*`
+
+## Todo:
+0. ~~handle schema ceoversion fail errer~~
+0.1 handle import fail
+1. ~~add line and col to exceptions~~
+2. ask ai for missing json schema features
+3. ask ai for suggestions
+4. update readme with schema info
