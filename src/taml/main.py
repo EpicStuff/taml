@@ -1,11 +1,15 @@
-import re, builtins, importlib
+import re
 from collections import UserDict, abc
 from io import StringIO, TextIOWrapper
 from pathlib import Path
 from typing import Any
 
+from epicstuff import Dict, JDict, open, rmap  # noqa: A004
+from beartype import beartype, BeartypeConf
 import ruamel.yaml as raml
-from epicstuff import Dict, JDict, open, wrap  # noqa: A004
+from . import schema as sch
+
+beartype = beartype(conf=BeartypeConf(is_color=False))
 
 
 class TAML(raml.YAML):
@@ -26,16 +30,17 @@ class TAML(raml.YAML):
 		self.indent(mapping=2, sequence=2, offset=2)
 		self.default_flow_style = None
 		self.width = 160
-	def load(self, stream: str | Path | TextIOWrapper | StringIO, *schemas: dict | str | Path | TextIOWrapper) -> Dict:
+	@beartype
+	def load(self, stream: str | Path | TextIOWrapper | StringIO, *schemas: abc.Mapping | str | Path | TextIOWrapper | StringIO) -> Dict[str, Any]:
 		'''Load file.
 
-		at this point you either have the non-pure Parser (which has its own reader and
-		scanner) or you have the pure Parser.
-		If the pure Parser is set, then set the Reader and Scanner, if not already set.
-		If either the Scanner or Reader are set, you cannot use the non-pure Parser,
-			so reset it to the pure parser and set the Reader resp. Scanner if necessary
+		Args:
+			stream: Can be either path to file or text/string io
+			*schemas: One or more schemas to apply to stream, can be either resolved dict, path to file, or text/string io
 
-		this description was copied from ruamel.yaml
+		Returns:
+			A JDict pointing to a ruamel.yaml commentedmap
+
 		'''
 		if isinstance(stream, (str, Path)):
 			with open(stream, 'r') as f:
@@ -50,14 +55,57 @@ class TAML(raml.YAML):
 
 		out = Dict(super().load(StringIO(''.join(file))), _convert=False)
 
+		# for ecah schema
 		for schema in schemas:
-			if not isinstance(schema, dict):
-				schema = _format_schema(taml.load(schema))
-			out = _format_data(out, schema)
+			# if the schema is not python object (load from file), format it
+			if not isinstance(schema, abc.Mapping):
+				schema = rmap(taml.load(schema), sch._format_schema)
+			out = sch._format_data(out, schema)
 		return out
-	def loads(self, stream: str) -> Dict:
-		return self.load(StringIO(stream))
-	def dump(self, data: Any, stream: Any = str | Path | TextIOWrapper, *, transform: abc.Callable | None = None) -> None:
+	@beartype
+	def loads(self, stream: str, *schemas: abc.Mapping | str | Path | TextIOWrapper, is_schema: bool = False) -> Dict[str, Any]:
+		'''Load string.
+
+		Args:
+			stream: yaml to load, as a string
+			*schemas: One or more schemas to apply to stream, can be either resolved dict, path to file, or text/string io
+			is_schema: are you loading a schema and it should be resolved
+
+		Returns:
+			A JDict pointing to a ruamel.yaml commentedmap
+
+		'''
+		out = self.load(StringIO(stream), *schemas)
+		if is_schema:
+			out = rmap(out, sch._format_schema)
+		return out
+	def dump(self, data: Any, stream: Any = str | Path | TextIOWrapper | StringIO, transform: abc.Callable | None = None) -> None:
+		'''Convert data to yaml and save to file like object.
+		
+		Args:
+			data: whatever ruamel.yaml accepts
+			stream: Can be either path to file or text/string io
+			transform: not super sure to be honest, just gets passed on to ruamel.yaml
+		
+		'''
+		out = self.dumps(data, transform)
+		
+		# dump to stream
+		if isinstance(stream, (str, Path)):
+			with open(stream, 'w') as f:
+				f.write(out)
+		elif isinstance(stream, (TextIOWrapper, StringIO)):
+			stream.write(out)
+		else:
+			raise TypeError
+	def dumps(self, data: Any, transform: abc.Callable | None = None) -> str:
+		'''Convert data to yaml and return as string.
+		
+		Args:
+			data: whatever ruamel.yaml accepts
+			transform: not super sure to be honest, just gets passed on to ruamel.yaml
+		
+		'''
 		# create temporary "text file"
 		tmp = StringIO()
 
@@ -71,87 +119,9 @@ class TAML(raml.YAML):
 		super().dump(data, tmp, transform=transform)
 		tmp.seek(0)
 
-		# convert indentation to tabs
-		tmp = tmp.read()
-		tmp = re.sub(r'(?<=\n)( {2})+', lambda match: '\t' * (len(match.group(0)) // 2), tmp)
-
-		# dump to stream
-		if isinstance(stream, (str, Path)):
-			with open(stream, 'w') as f:
-				f.write(tmp)
-		elif isinstance(stream, TextIOWrapper):
-			stream.write(tmp)
-		else:
-			raise TypeError
-
-
-def _format_data(data: Any, schema: Any) -> Any:
-	if isinstance(schema, Dict | dict) and isinstance(data, Dict | dict):
-		for s_key, s_value in schema.items():
-			if s_key in data:
-				data[s_key] = _format_data(data[s_key], s_value)
-	if isinstance(schema, list | tuple) and isinstance(data, list | tuple):
-		assert not isinstance(data, tuple), 'look into this'
-		for num, (value, s_value) in enumerate(zip(data, schema)):
-			data[num] = _format_data(value, s_value)
-	if callable(schema):
-		return schema(data)
-	return data
-def _format_schema(schema: Any) -> Any:
-	if isinstance(schema, str):
-		return _resolve(schema)
-	if isinstance(schema, Dict | dict):
-		return {key: _format_schema(value) for key, value in schema.items()}
-	if isinstance(schema, list | tuple):
-		return [_format_schema(value) for value in schema]
-	return schema
-def _resolve(name: str) -> Any:
-	def save_arg_or_kwarg(key: str | None, arg: Any) -> None:
-		if key:
-			resolved_kwargs[key] = arg
-		else:
-			resolved_args.append(arg)
-	resolved_args = []
-	resolved_kwargs = {}
-
-	name, args = name.split('(') if '(' in name else (name, '')
-	args = args.rstrip(')')
-
-	# resolve args first
-	if args:
-		for arg in args.split(','):
-			arg = arg.strip()  # prevent, say trailing comma then space
-			if arg:    # prevent, say trailing comma then space
-				key, arg = arg.split('=') if '=' in arg else (None, arg)
-				# if arg is a string, if so, don't resolve it
-				if arg[0] == arg[-1] and arg[0] in ('"', "'"):
-					save_arg_or_kwarg(key, taml.loads(arg)._t)  # let taml handle stripping quotes
-				else:
-					arg = taml.loads(arg)._t  # convert arg to python object (e.g. '2' -> 2, 'false' -> False, 'datetime.datetime' -> 'datetime.datetime')
-					if isinstance(arg, str):
-						save_arg_or_kwarg(key, _resolve(arg))
-					else:
-						save_arg_or_kwarg(key, arg if arg != {} else None)  # for some reason, ruamel.yaml converts null to {} instead of None, unlike any other values
-
-	# then resolve callable
-	parts = name.split('.')
-
-	# try builtins first
-	if hasattr(builtins, name):
-		obj = getattr(builtins, name)
-		return wrap(obj, *resolved_args, **resolved_kwargs) if resolved_args or resolved_kwargs else obj
-
-	# try to resolve, starting with longest module path then trying shorter paths
-	for i in range(len(parts), 0, -1):
-		try:
-			obj = importlib.import_module('.'.join(parts[:i]))
-			for attr in parts[i:]:
-				obj = getattr(obj, attr)
-			return wrap(obj, *resolved_args, **resolved_kwargs) if resolved_args or resolved_kwargs else obj
-		except ModuleNotFoundError:
-			continue
-
-	raise ImportError(f'Cannot resolve {name}')
+		# convert indentation to tabs and return as string
+		return re.sub(r'(?<=\n)( {2})+', lambda match: '\t' * (len(match.group(0)) // 2), tmp.read())
+		
 
 
 taml = TAML()

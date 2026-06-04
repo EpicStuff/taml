@@ -1,8 +1,0 @@
-a:
-	b: datetime.datetime.fromtimestamp(tz=datetime.timezone.utc)
-	c: tuple
-	d:
-		- round(ndigits=2)
-		- null
-		- epicstuff.Dict(b='1')  # make sure b stays str during resolve
-		- str
