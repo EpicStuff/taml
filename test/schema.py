@@ -1,9 +1,9 @@
 import datetime, os
 from pathlib import Path
 
-from taml import taml
-from taml.schema import tmp_error
-from epicstuff import Dict, run_install_trace, s
+from taml import taml, RequiredError
+from epicstuff import NewDict as Dict, run_install_trace
+from utils import assert_raises
 
 
 os.chdir(Path(__file__).parent)
@@ -42,12 +42,11 @@ a:
 		- 4
 '''
 
+# checking required works
+assert_raises(RequiredError, lambda: taml.loads(data, schema1, schema2), 'a.e.f is required (line 2, col 1)')
+# todo: maybe, the 2, 1 is not ideal, but getting ~15, 2 is to much work for now (where the missing key should go instead of parent key)
 
-try:
-	out = taml.loads(data, schema1, schema2)
-except tmp_error as e:
-	assert str(e) == 'tmp, value is required'
-
+# checking schema works
 data = '''
 a:
 	a: 3
@@ -65,15 +64,31 @@ a:
 	e:
 		f: 'required value'
 '''
-
 out = taml.loads(data, schema1, schema2)
-assert out == Dict({
-	'a': Dict({'a': 3,
+assert out == {
+	'a': {'a': 3,
 		'b': datetime.datetime(2000, 4, 24, 12, 36, 16, tzinfo=datetime.timezone.utc),
 		'c': (1, 2, 3),
-		'd': (1.12, 2, Dict({'a': 1, 'b': '1'}), '4'),
-		'e': Dict({'f': 'required value'}),
-		}),
-	})
+		'd': (1.12, 2, {'a': 1, 'b': '1'}, '4'),
+		'e': {'f': 'required value'},
+		},
+	}
 
-print(out)
+
+
+schema = taml.loads('''
+a:
+	taml.repeat():
+		a: taml.required
+		b: int
+''', is_schema=True)
+out = taml.loads('''
+a:
+	b:
+		a: test1
+		b: 1
+	c:
+		a: test2
+	d:
+		b: 3
+''', schema)

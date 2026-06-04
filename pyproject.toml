@@ -4,7 +4,7 @@
 [project]
 	authors = [{email = "EpicStuff@users.noreply.github.com", name = "EpicStuff"}]
 	classifiers = ["Operating System :: OS Independent", "Programming Language :: Python :: 3"]
-	dependencies = ["epicstuff", "ruamel.yaml==0.18.10", "zope.dottedname"]
+	dependencies = ["beartype", "epicstuff==1.2.0", "ruamel.yaml==0.18.10", "zope.dottedname"]
 	description = "YAML but with tabs"
 	name = "taml"
 	readme = "README.md"
