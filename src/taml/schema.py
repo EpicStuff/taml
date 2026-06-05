@@ -26,10 +26,11 @@ class strict(schema):
 
 	def __init__(self, path: Any, line: int, col: int, func: Callable | None = None) -> None:
 		'Make sure that func exists.'
+		loc = f' at {path}' if path else ''
 		if func is None:
-			raise SchemaDefinitionError(f'Missing arguments for strict (line {line+1}, col {col+1})')
+			raise SchemaDefinitionError(f'Missing arguments for strict{loc} (line {line+1}, col {col+1})')
 		if isinstance(func, required) and func.func is None:
-			raise SchemaDefinitionError(f'Missing arguments for required inside strict (line {line+1}, col {col+1})')
+			raise SchemaDefinitionError(f'Missing arguments for required inside strict{loc} (line {line+1}, col {col+1})')
 
 		self.path: str = path; self.func: Callable = func
 
@@ -54,10 +55,15 @@ class repeat(schema):
 
 	In a sequence schema, used as an element (``[taml.repeat(X)]``); X is the
 	schema applied to every data item at or beyond the marker's index.
+
+	``coerce`` (default True) turns null data into the empty collection
+	(``[]`` or ``{}``) before iterating, so a missing/null field of a
+	``repeat``-typed slot becomes an empty list/mapping in the output.
 	'''
 
-	def __init__(self, schema: Any = None) -> None:
+	def __init__(self, schema: Any = None, *, coerce: bool = True) -> None:
 		self.schema = schema
+		self.coerce = coerce
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -96,12 +102,14 @@ def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None 
 			if isinstance(key, str) and 'taml.repeat' in key:
 				k_line, k_col = schema.lc.key(key)
 				new_key = _resolve(key, k_line, k_col, path=path)
-				if isinstance(new_key, repeat) and new_key.schema is not None:
-					raise SchemaDefinitionError(f'taml.repeat used as a mapping key cannot take arguments (line {k_line+1}, col {k_col+1})')
 				new_path = f'{path}[*]'
+				if isinstance(new_key, repeat) and new_key.schema is not None:
+					raise SchemaDefinitionError(f'taml.repeat used as a mapping key cannot take a schema argument at {new_path} (line {k_line+1}, col {k_col+1})')
+				if schema[key] is None:
+					raise SchemaDefinitionError(f'taml.repeat used as a mapping key requires a nested schema at {new_path} (line {k_line+1}, col {k_col+1})')
 			else:
 				new_key = key
-				new_path = f'{path}.{key}'
+				new_path = f'{path}.{key}' if path else str(key)
 			items.append((key, new_key, schema[key], v_line, v_col, new_path))
 		for old_key, new_key, value, v_line, v_col, new_path in items:
 			if old_key is not new_key:
@@ -113,9 +121,11 @@ def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None 
 			schema[new_key] = _format_schema(value, v_line, v_col, path=new_path)
 	# if is a str, turn into object
 	if isinstance(schema, str):
-		resolved = _resolve(schema, line, col, path.lstrip('.'))  # pyright: ignore[reportArgumentType]
+		clean_path = path.lstrip('.')
+		resolved = _resolve(schema, line, col, clean_path)  # pyright: ignore[reportArgumentType]
 		if isinstance(resolved, repeat) and resolved.schema is None:
-			raise SchemaDefinitionError(f'taml.repeat used as a value requires a schema argument (line {line+1}, col {col+1})')  # pyright: ignore[reportArgumentType]
+			loc = f' at {clean_path}' if clean_path else ''
+			raise SchemaDefinitionError(f'taml.repeat used as a value requires a schema argument{loc} (line {line+1}, col {col+1})')  # pyright: ignore[reportArgumentType]
 		return resolved
 	# else
 	return schema
@@ -137,7 +147,8 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 			assert node.lineno == 1, 'look into this'
 			return _resolve(seg, line, col + node.col_offset, path)
 		assert hasattr(node, 'col_offset'), 'look into this'
-		raise SchemaDefinitionError(f'Unsupported expression {seg!r} (line {line+1}, col {col + node.col_offset+1})')  # pyright: ignore[reportAttributeAccessIssue]
+		loc = f' at {path}' if path else ''
+		raise SchemaDefinitionError(f'Unsupported expression {seg!r}{loc} (line {line+1}, col {col + node.col_offset+1})')  # pyright: ignore[reportAttributeAccessIssue]
 	resolved_args = []
 	resolved_kwargs = {}
 
@@ -155,7 +166,8 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 		for kwarg in parsed.keywords:
 			# reject unpacking
 			if kwarg.arg is None:
-				raise SchemaDefinitionError(f'Keyword argument must be written as name=value (line {line + 1}, col {col + kwarg.col_offset + 1})')
+				loc = f' at {path}' if path else ''
+				raise SchemaDefinitionError(f'Keyword argument must be written as name=value{loc} (line {line + 1}, col {col + kwarg.col_offset + 1})')
 			resolved_kwargs[kwarg.arg] = node_to_value(src, kwarg.value)
 	## else, just a func without brackets, like int or epicstuff.Dict
 	else:
@@ -170,7 +182,8 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 	try:
 		func = zresolve(func)
 	except ImportError as e:
-		raise SchemaImportError(f'{e} (line {line+1}, col {col+1})') from e
+		loc = f' at {path}' if path else ''
+		raise SchemaImportError(f'{e}{loc} (line {line+1}, col {col+1})') from e
 	## special stuff for required and strict
 	if func in (required, strict):
 		return func(path, line, col, *resolved_args, **resolved_kwargs)
@@ -187,13 +200,18 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 		if not isinstance(data, MutableMapping) and data is not None:
 			raise StructureError(True, data, line, col)
 		# split schema keys into static keys and an optional repeat schema
+		repeat_key: repeat | None = None
 		repeat_schema: Any = None
 		static_keys: list = []
 		for s_key in schema:
 			if isinstance(s_key, repeat):
+				repeat_key = s_key
 				repeat_schema = schema[s_key]
 			else:
 				static_keys.append(s_key)
+		# coerce None to an empty mapping when the repeat marker opts in
+		if data is None and repeat_key is not None and repeat_key.coerce:
+			data = Dict()
 		# process each statically-named schema key
 		for s_key in static_keys:
 			s_value = schema[s_key]
@@ -216,11 +234,16 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 		if not isinstance(data, MutableSequence) and data is not None:
 			raise StructureError(False, data, line, col)
 		# locate a repeat marker (first occurrence wins)
+		repeat_marker: repeat | None = None
 		repeat_idx: int | None = None
 		for num, s_value in enumerate(schema):
 			if isinstance(s_value, repeat):
+				repeat_marker = s_value
 				repeat_idx = num
 				break
+		# coerce None to an empty list when the repeat marker opts in
+		if data is None and repeat_marker is not None and repeat_marker.coerce:
+			data = []
 		# process static prefix (everything before the repeat marker, or all of schema if none)
 		prefix_end = repeat_idx if repeat_idx is not None else len(schema)
 		for num in range(prefix_end):
@@ -241,6 +264,8 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 	elif isinstance(schema, repeat):
 		if not isinstance(data, MutableSequence) and data is not None:
 			raise StructureError(False, data, line, col)
+		if data is None and schema.coerce:
+			data = []
 		if data is not None:
 			for num in range(len(data)):
 				new_path = f'{path}[{num}]'

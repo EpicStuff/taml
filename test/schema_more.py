@@ -15,12 +15,12 @@ assert schema['a'] is int
 assert_raises(
 	ImportError,
 	lambda: taml.loads('a: some_nonexistent_module.fn', is_schema=True),
-	"No module named 'some_nonexistent_module' (line 1, col 4)",
+	"No module named 'some_nonexistent_module' at a (line 1, col 4)",
 )
 assert_raises(
 	ImportError,
 	lambda: taml.loads('a: os.path.nonexistent_attr', is_schema=True),
-	"No module named 'os.path.nonexistent_attr'; 'os.path' is not a package (line 1, col 4)",
+	"No module named 'os.path.nonexistent_attr'; 'os.path' is not a package at a (line 1, col 4)",
 )
 
 
@@ -106,7 +106,7 @@ assert_raises(RequiredError, lambda: taml.loads('a: null\n', schema), 'a is requ
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads('a: taml.strict(taml.required)\n', is_schema=True),
-	'Missing arguments for required inside strict (line 1, col 4)',
+	'Missing arguments for required inside strict at a (line 1, col 4)',
 )
 
 
@@ -291,7 +291,8 @@ try:
 except RequiredError as e:
 	assert str(e) == 'items[1] is required (line 1, col 14)', str(e)
 
-# taml.repeat as a mapping key cannot take arguments
+# taml.repeat as a mapping key cannot take a schema argument (positional)
+# but coerce=False is allowed as a kwarg
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads('''
@@ -299,7 +300,7 @@ a:
 	taml.repeat(int):
 		x: taml.required
 ''', is_schema=True),
-	'taml.repeat used as a mapping key cannot take arguments (line 3, col 2)',
+	'taml.repeat used as a mapping key cannot take a schema argument at a[*] (line 3, col 2)',
 )
 
 # taml.repeat as a value (sequence element or mapping value) requires a schema argument
@@ -309,12 +310,30 @@ assert_raises(
 items:
 	- taml.repeat
 ''', is_schema=True),
-	'taml.repeat used as a value requires a schema argument (line 3, col 4)',
+	'taml.repeat used as a value requires a schema argument at items[0] (line 3, col 4)',
 )
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads('a: taml.repeat()\n', is_schema=True),
-	'taml.repeat used as a value requires a schema argument (line 1, col 4)',
+	'taml.repeat used as a value requires a schema argument at a (line 1, col 4)',
+)
+
+# taml.repeat as a mapping key requires a nested schema (not null/empty value)
+assert_raises(
+	SchemaDefinitionError,
+	lambda: taml.loads('''
+a:
+	taml.repeat:
+''', is_schema=True),
+	'taml.repeat used as a mapping key requires a nested schema at a[*] (line 3, col 2)',
+)
+assert_raises(
+	SchemaDefinitionError,
+	lambda: taml.loads('''
+a:
+	taml.repeat(): null
+''', is_schema=True),
+	'taml.repeat used as a mapping key requires a nested schema at a[*] (line 3, col 2)',
 )
 
 # bare taml.repeat (no parens) as a mapping key works like taml.repeat()
@@ -331,14 +350,47 @@ assert_raises(
 )
 assert taml.loads('a:\n\tb:\n\t\ta: ok\n\t\tb: 1\n', schema) == {'a': {'b': {'a': 'ok', 'b': 1}}}
 
-# null/empty data against a repeat-bearing schema is a no-op (nothing to validate)
+# default coerce=True turns null data into the empty collection for repeat-bearing schemas
 schema = taml.loads('''
 a:
 	taml.repeat():
 		a: taml.required
 ''', is_schema=True)
+assert taml.loads('a:\n', schema) == {'a': {}}
+assert taml.loads('a: {}\n', schema) == {'a': {}}
+
+# coerce=False on the mapping-key repeat preserves null
+schema = taml.loads('''
+a:
+	taml.repeat(coerce=False):
+		a: taml.required
+''', is_schema=True)
 assert taml.loads('a:\n', schema) == {'a': None}
 assert taml.loads('a: {}\n', schema) == {'a': {}}
+
+# default coerce=True on bare repeat-as-value turns null into []
+schema = taml.loads('items: taml.repeat(int)\n', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': []}
+assert taml.loads("items: ['1', '2']\n", schema) == {'items': [1, 2]}
+
+# coerce=False on bare repeat-as-value preserves null
+schema = taml.loads('items: taml.repeat(int, coerce=False)\n', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': None}
+assert taml.loads("items: ['1', '2']\n", schema) == {'items': [1, 2]}
+
+# default coerce=True on sequence repeat marker turns null into []
+schema = taml.loads('''
+items:
+	- taml.repeat(int)
+''', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': []}
+
+# coerce=False on sequence repeat marker preserves null
+schema = taml.loads('''
+items:
+	- taml.repeat(int, coerce=False)
+''', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': None}
 
 
 # --- Python dict schemas (constructed directly, not parsed from YAML) ---
