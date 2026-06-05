@@ -73,22 +73,3 @@ assert out == {
 		'e': {'f': 'required value'},
 		},
 	}
-
-
-
-schema = taml.loads('''
-a:
-	taml.repeat():
-		a: taml.required
-		b: int
-''', is_schema=True)
-out = taml.loads('''
-a:
-	b:
-		a: test1
-		b: 1
-	c:
-		a: test2
-	d:
-		b: 3
-''', schema)

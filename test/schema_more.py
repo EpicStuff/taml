@@ -2,7 +2,7 @@ import datetime, os
 from pathlib import Path
 
 from epicstuff import Dict, run_install_trace, s  # noqa: F401
-from taml import taml, required, strict, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
+from taml import taml, required, strict, repeat, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
 from utils import assert_raises
 
 os.chdir(Path(__file__).parent)
@@ -201,6 +201,146 @@ assert_raises(StructureError, lambda: taml.loads('x: [1]\n', schema_dict), 'Expe
 assert_raises(StructureError, lambda: taml.loads('x: 1\n', schema_dict), 'Expected MutableMapping or None, got int: 1 (line 1, col 4)')
 
 
+# --- taml.repeat semantics (schema parsed from YAML) ---
+
+schema = taml.loads('''
+a:
+	taml.repeat():
+		a: taml.required
+		b: int
+''', is_schema=True)
+
+# 'd' is missing required key 'a', so the error path should include the actual data key
+try:
+	out = taml.loads('''
+a:
+	b:
+		a: test1
+		b: 1
+	c:
+		a: test2
+	d:
+		b: 3
+''', schema)
+except RequiredError as e:
+	assert str(e) == 'a.d.a is required (line 8, col 2)', str(e)
+
+# all entries satisfy the repeat schema -> int coercion runs per entry
+out = taml.loads('''
+a:
+	b:
+		a: test1
+		b: 1
+	c:
+		a: test2
+		b: '2'
+	d:
+		a: test3
+		b: '3'
+''', schema)
+assert out == {'a': {
+	'b': {'a': 'test1', 'b': 1},
+	'c': {'a': 'test2', 'b': 2},
+	'd': {'a': 'test3', 'b': 3},
+}}
+
+# static key alongside taml.repeat(): static wins, repeat covers the rest
+schema = taml.loads('''
+cfg:
+	name: taml.required
+	taml.repeat():
+		port: int
+''', is_schema=True)
+out = taml.loads('''
+cfg:
+	name: my-service
+	primary:
+		port: '8080'
+	backup:
+		port: '8081'
+''', schema)
+assert out == {'cfg': {
+	'name': 'my-service',
+	'primary': {'port': 8080},
+	'backup': {'port': 8081},
+}}
+
+# sequence taml.repeat(int): list of ints, any length
+schema = taml.loads('''
+items:
+	- taml.repeat(int)
+''', is_schema=True)
+assert taml.loads("items: ['1', '2', '3', '4']\n", schema) == {'items': [1, 2, 3, 4]}
+assert taml.loads('items: []\n', schema) == {'items': []}
+
+# sequence with static prefix followed by taml.repeat
+schema = taml.loads('''
+items:
+	- str
+	- taml.repeat(int)
+''', is_schema=True)
+assert taml.loads("items: ['hello', '1', '2', '3']\n", schema) == {'items': ['hello', 1, 2, 3]}
+
+# sequence repeat with required: each repeated item must be non-null
+schema = taml.loads('''
+items:
+	- taml.repeat(taml.required(int))
+''', is_schema=True)
+try:
+	taml.loads("items: ['1', null, '3']\n", schema)
+except RequiredError as e:
+	assert str(e) == 'items[1] is required (line 1, col 14)', str(e)
+
+# taml.repeat as a mapping key cannot take arguments
+assert_raises(
+	SchemaDefinitionError,
+	lambda: taml.loads('''
+a:
+	taml.repeat(int):
+		x: taml.required
+''', is_schema=True),
+	'taml.repeat used as a mapping key cannot take arguments (line 3, col 2)',
+)
+
+# taml.repeat as a value (sequence element or mapping value) requires a schema argument
+assert_raises(
+	SchemaDefinitionError,
+	lambda: taml.loads('''
+items:
+	- taml.repeat
+''', is_schema=True),
+	'taml.repeat used as a value requires a schema argument (line 3, col 4)',
+)
+assert_raises(
+	SchemaDefinitionError,
+	lambda: taml.loads('a: taml.repeat()\n', is_schema=True),
+	'taml.repeat used as a value requires a schema argument (line 1, col 4)',
+)
+
+# bare taml.repeat (no parens) as a mapping key works like taml.repeat()
+schema = taml.loads('''
+a:
+	taml.repeat:
+		a: taml.required
+		b: int
+''', is_schema=True)
+assert_raises(
+	RequiredError,
+	lambda: taml.loads('a:\n\tb:\n\t\tc: x\n', schema),
+	'a.b.a is required (line 2, col 2)',
+)
+assert taml.loads('a:\n\tb:\n\t\ta: ok\n\t\tb: 1\n', schema) == {'a': {'b': {'a': 'ok', 'b': 1}}}
+
+# null/empty data against a repeat-bearing schema is a no-op (nothing to validate)
+schema = taml.loads('''
+a:
+	taml.repeat():
+		a: taml.required
+''', is_schema=True)
+assert taml.loads('a:\n', schema) == {'a': None}
+assert taml.loads('a: {}\n', schema) == {'a': {}}
+
+
 # --- Python dict schemas (constructed directly, not parsed from YAML) ---
 
 # bare builtin converts value
@@ -221,11 +361,17 @@ assert taml.loads('a: {b: "5"}\n', schema_nested_py) == {'a': {'b': 5}}
 assert taml.loads('a:\n', schema_nested_py) == {'a': None}
 assert taml.loads('a: {}\n', schema_nested_py) == {'a': {}}
 
-# list inside dict schema, plus structure mismatches
-schema_list_py = {'lst': [int]}
-assert taml.loads("lst: ['1', '2']\n", schema_list_py) == {'lst': [1, '2']}
+# list inside dict schema: explicit repeat marker covers every item
+schema_list_py = {'lst': [repeat(int)]}
+assert taml.loads("lst: ['1', '2']\n", schema_list_py) == {'lst': [1, 2]}
 assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_list_py))
 assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_list_py))
+
+# bare repeat(int) as a mapping value behaves the same as [repeat(int)]
+schema_list_bare = {'lst': repeat(int)}
+assert taml.loads("lst: ['1', '2']\n", schema_list_bare) == {'lst': [1, 2]}
+assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_list_bare))
+assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_list_bare))
 
 # required and strict instances used directly
 schema_req_py = {'a': required('a', 0, 0)}

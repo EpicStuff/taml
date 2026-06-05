@@ -15,9 +15,9 @@ class required(schema):
 
 	path: Any; _: int; __: int; func: Callable | None = None
 
-	def __call__(self, data: Any, line: int, col: int) -> Any:
+	def __call__(self, data: Any, line: int, col: int, path: str | None = None) -> Any:
 		if data is None:
-			raise RequiredError(self.path, line, col)
+			raise RequiredError(path if path else self.path, line, col)
 		if self.func:
 			return self.func(data)
 		return data
@@ -33,20 +33,31 @@ class strict(schema):
 
 		self.path: str = path; self.func: Callable = func
 
-	def __call__(self, data: Any, line: int, col: int) -> Any:
+	def __call__(self, data: Any, line: int, col: int, path: str | None = None) -> Any:
 		# do required check first
 		func: Callable = self.func
 		if isinstance(self.func, required):
 			func = self.func.func  # pyright: ignore[reportAssignmentType]
 			if data is None:
-				self.func(data, line, col)
+				self.func(data, line, col, path=path)
 
 		if data is not None:
 			if not isinstance(data, func):
 				raise StrictError(func, data, line, col)
 			return func(data)
 		return data
-class repeat(schema): ...
+class repeat(schema):
+	'''Schema applies to every entry of the parent collection.
+
+	In a mapping schema, used as a key (``{taml.repeat(): X}``); X is the
+	schema applied to every data value not matched by a static key.
+
+	In a sequence schema, used as an element (``[taml.repeat(X)]``); X is the
+	schema applied to every data item at or beyond the marker's index.
+	'''
+
+	def __init__(self, schema: Any = None) -> None:
+		self.schema = schema
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -78,20 +89,34 @@ def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None 
 			schema[num] = _format_schema(item, *schema.lc.item(num), path=f'{path}[{num}]')
 	# if schema value is a dict, call self on each value and deal with key
 	if isinstance(schema, MutableMapping):
-		for key, value in schema.items():
-			# todo: go through this part
-			if 'taml.repeat' in key:
-				idx = list(schema).index(key)
-				val = schema.pop(key)
-				new = _resolve(key, *schema.lc.key(key), path=path)
-				schema.insert(idx, new, val)
-				if key in schema.ca.items:
-					schema.ca.items[new] = schema.ca.items.pop(key)
-
-			schema[key] = _format_schema(value, *schema.lc.value(key), path=f'{path}.{key}')
+		# capture lc info before mutating keys, since lc lookups don't survive rename
+		items = []
+		for key in list(schema):
+			v_line, v_col = schema.lc.value(key)
+			if isinstance(key, str) and 'taml.repeat' in key:
+				k_line, k_col = schema.lc.key(key)
+				new_key = _resolve(key, k_line, k_col, path=path)
+				if isinstance(new_key, repeat) and new_key.schema is not None:
+					raise SchemaDefinitionError(f'taml.repeat used as a mapping key cannot take arguments (line {k_line+1}, col {k_col+1})')
+				new_path = f'{path}[*]'
+			else:
+				new_key = key
+				new_path = f'{path}.{key}'
+			items.append((key, new_key, schema[key], v_line, v_col, new_path))
+		for old_key, new_key, value, v_line, v_col, new_path in items:
+			if old_key is not new_key:
+				idx = list(schema).index(old_key)
+				schema.pop(old_key)
+				schema.insert(idx, new_key, value)
+				if old_key in schema.ca.items:
+					schema.ca.items[new_key] = schema.ca.items.pop(old_key)
+			schema[new_key] = _format_schema(value, v_line, v_col, path=new_path)
 	# if is a str, turn into object
 	if isinstance(schema, str):
-		return _resolve(schema, line, col, path.lstrip('.'))  # pyright: ignore[reportArgumentType]
+		resolved = _resolve(schema, line, col, path.lstrip('.'))  # pyright: ignore[reportArgumentType]
+		if isinstance(resolved, repeat) and resolved.schema is None:
+			raise SchemaDefinitionError(f'taml.repeat used as a value requires a schema argument (line {line+1}, col {col+1})')  # pyright: ignore[reportArgumentType]
+		return resolved
 	# else
 	return schema
 def _resolve(src: str, line: int, col: int, path: str) -> Any:
@@ -149,38 +174,81 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 	## special stuff for required and strict
 	if func in (required, strict):
 		return func(path, line, col, *resolved_args, **resolved_kwargs)
+	## repeat always becomes an instance, even with no args
+	if func is repeat:
+		return func(*resolved_args, **resolved_kwargs)
 	## else, wrap func with args
 	return wrap(func, *resolved_args, **resolved_kwargs) if resolved_args or resolved_kwargs else func
 
-def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: int = 0, p_col: int = 0) -> Any:
+def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: int = 0, p_col: int = 0, path: str = '') -> Any:
 	# if the schema value is a dict
 	if isinstance(schema, Mapping):
 		# data value has to be a dict or none
 		if not isinstance(data, MutableMapping) and data is not None:
 			raise StructureError(True, data, line, col)
-		# go through each item in schema, and run format on it and matching data value
-		for s_key, s_value in schema.items():
+		# split schema keys into static keys and an optional repeat schema
+		repeat_schema: Any = None
+		static_keys: list = []
+		for s_key in schema:
+			if isinstance(s_key, repeat):
+				repeat_schema = schema[s_key]
+			else:
+				static_keys.append(s_key)
+		# process each statically-named schema key
+		for s_key in static_keys:
+			s_value = schema[s_key]
+			new_path = f'{path}.{s_key}' if path else str(s_key)
 			# if key does not exist in data, pass None and parent key line/col to self
 			if data is None or s_key not in data:
-				_format_data(None, s_value, p_line, p_col, p_line, p_col)
+				_format_data(None, s_value, p_line, p_col, p_line, p_col, path=new_path)
 			else:
-				data[s_key] = _format_data(data.get(s_key), s_value, *data.lc.value(s_key), *data.lc.key(s_key))
+				data[s_key] = _format_data(data.get(s_key), s_value, *data.lc.value(s_key), *data.lc.key(s_key), path=new_path)
+		# if there is a repeat schema, apply it to remaining data keys
+		if repeat_schema is not None and data is not None:
+			for d_key in list(data):
+				if d_key in static_keys:
+					continue
+				new_path = f'{path}.{d_key}' if path else str(d_key)
+				data[d_key] = _format_data(data[d_key], repeat_schema, *data.lc.value(d_key), *data.lc.key(d_key), path=new_path)
 	# if the schema value is list
 	elif isinstance(schema, (list | tuple | set | frozenset)):
 		# data value has to be a list or none
 		if not isinstance(data, MutableSequence) and data is not None:
 			raise StructureError(False, data, line, col)
-		# go through each item in schema, and run format on it and each item in data
+		# locate a repeat marker (first occurrence wins)
+		repeat_idx: int | None = None
 		for num, s_value in enumerate(schema):
-			# if index does not exist in data, pass None and parent key line/col to self
+			if isinstance(s_value, repeat):
+				repeat_idx = num
+				break
+		# process static prefix (everything before the repeat marker, or all of schema if none)
+		prefix_end = repeat_idx if repeat_idx is not None else len(schema)
+		for num in range(prefix_end):
+			s_value = schema[num]
+			new_path = f'{path}[{num}]'
 			if data is None or num >= len(data):
-				_format_data(None, s_value, p_line, p_col, p_line, p_col)
+				_format_data(None, s_value, p_line, p_col, p_line, p_col, path=new_path)
 			else:
-				data[num] = _format_data(data[num], s_value, *data.lc.item(num), *data.lc.item(num))
+				data[num] = _format_data(data[num], s_value, *data.lc.item(num), *data.lc.item(num), path=new_path)
+		# apply repeat to data items at the marker's index and beyond
+		if repeat_idx is not None and data is not None:
+			rep_schema = schema[repeat_idx].schema
+			for num in range(repeat_idx, len(data)):
+				new_path = f'{path}[{num}]'
+				data[num] = _format_data(data[num], rep_schema, *data.lc.item(num), *data.lc.item(num), path=new_path)
+
+	# bare repeat instance behaves like a single-element sequence schema: list of `schema.schema`
+	elif isinstance(schema, repeat):
+		if not isinstance(data, MutableSequence) and data is not None:
+			raise StructureError(False, data, line, col)
+		if data is not None:
+			for num in range(len(data)):
+				new_path = f'{path}[{num}]'
+				data[num] = _format_data(data[num], schema.schema, *data.lc.item(num), *data.lc.item(num), path=new_path)
 
 	# format the value
 	elif isinstance(schema, (required, strict)):
-		return schema(data, line, col)
+		return schema(data, line, col, path=path)
 	elif callable(schema) and data is not None:
 		try:
 			return schema(data)
