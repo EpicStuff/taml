@@ -303,20 +303,18 @@ a:
 	'taml.repeat used as a mapping key cannot take a schema argument at a[*] (line 3, col 2)',
 )
 
-# taml.repeat as a value (sequence element or mapping value) requires a schema argument
-assert_raises(
-	SchemaDefinitionError,
-	lambda: taml.loads('''
+# bare taml.repeat (no schema arg) as a value means "list of anything"; null coerces to []
+schema = taml.loads('items: taml.repeat()\n', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': []}
+assert taml.loads("items: [1, 'a', null]\n", schema) == {'items': [1, 'a', None]}
+
+# same when used as a sequence element
+schema = taml.loads('''
 items:
 	- taml.repeat
-''', is_schema=True),
-	'taml.repeat used as a value requires a schema argument at items[0] (line 3, col 4)',
-)
-assert_raises(
-	SchemaDefinitionError,
-	lambda: taml.loads('a: taml.repeat()\n', is_schema=True),
-	'taml.repeat used as a value requires a schema argument at a (line 1, col 4)',
-)
+''', is_schema=True)
+assert taml.loads('items:\n', schema) == {'items': []}
+assert taml.loads("items: [1, 'a']\n", schema) == {'items': [1, 'a']}
 
 # taml.repeat as a mapping key requires a nested schema (not null/empty value)
 assert_raises(

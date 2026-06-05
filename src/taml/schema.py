@@ -47,6 +47,7 @@ class strict(schema):
 				raise StrictError(func, data, line, col)
 			return func(data)
 		return data
+@dataclass(eq=False)
 class repeat(schema):
 	'''Schema applies to every entry of the parent collection.
 
@@ -61,9 +62,8 @@ class repeat(schema):
 	``repeat``-typed slot becomes an empty list/mapping in the output.
 	'''
 
-	def __init__(self, schema: Any = None, *, coerce: bool = True) -> None:
-		self.schema = schema
-		self.coerce = coerce
+	schema: Callable | None = None
+	coerce: bool = True
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -121,12 +121,7 @@ def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None 
 			schema[new_key] = _format_schema(value, v_line, v_col, path=new_path)
 	# if is a str, turn into object
 	if isinstance(schema, str):
-		clean_path = path.lstrip('.')
-		resolved = _resolve(schema, line, col, clean_path)  # pyright: ignore[reportArgumentType]
-		if isinstance(resolved, repeat) and resolved.schema is None:
-			loc = f' at {clean_path}' if clean_path else ''
-			raise SchemaDefinitionError(f'taml.repeat used as a value requires a schema argument{loc} (line {line+1}, col {col+1})')  # pyright: ignore[reportArgumentType]
-		return resolved
+		return _resolve(schema, line, col, path.lstrip('.'))  # pyright: ignore[reportArgumentType]
 	# else
 	return schema
 def _resolve(src: str, line: int, col: int, path: str) -> Any:
