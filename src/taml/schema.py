@@ -17,7 +17,7 @@ class required(schema):
 
 	def __call__(self, data: Any, line: int, col: int, path: str | None = None) -> Any:
 		if data is None:
-			raise RequiredError(path if path else self.path, line, col)
+			raise RequiredError(path or self.path, line, col)
 		if self.func:
 			return self.func(data)
 		return data
@@ -62,8 +62,7 @@ class repeat(schema):
 	``repeat``-typed slot becomes an empty list/mapping in the output.
 	'''
 
-	schema: Callable | None = None
-	coerce: bool = True
+	schema: Callable | None = None;	coerce: bool = True
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -82,7 +81,11 @@ class SchemaDefinitionError(SchemaError, ValueError): ...
 class SchemaImportError(SchemaError, ImportError): ...  # pyright: ignore[reportUnsafeMultipleInheritance]
 class ConversionTypeError(SchemaError, TypeError):
 	def __init__(self, schema: Callable, data: Any, line: int, col: int) -> None:
-		super().__init__(f'Cannot convert {data!r} to {schema.__name__} (line {line+1}, col {col+1})')
+		try:
+			name = schema.__name__
+		except AttributeError:
+			name = schema
+		super().__init__(f'Cannot convert {data!r} to {name} (line {line+1}, col {col+1})')
 class ConversionValueError(SchemaError, ValueError):
 	def __init__(self, schema: Callable, data: Any, line: int, col: int) -> None:
 		super().__init__(f'Cannot convert {data!r} to {schema.__name__} (line {line+1}, col {col+1})')

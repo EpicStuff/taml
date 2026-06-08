@@ -411,11 +411,15 @@ assert taml.loads('a: {b: "5"}\n', schema_nested_py) == {'a': {'b': 5}}
 assert taml.loads('a:\n', schema_nested_py) == {'a': None}
 assert taml.loads('a: {}\n', schema_nested_py) == {'a': {}}
 
+# list inside dict schema, plus structure mismatches
+schema_list_py = {'lst': [int]}
+assert taml.loads("lst: ['1', '2']\n", schema_list_py) == {'lst': [1, '2']}
+assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_list_py))
+assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_list_py))
+
 # list inside dict schema: explicit repeat marker covers every item
 schema_list_py = {'lst': [repeat(int)]}
 assert taml.loads("lst: ['1', '2']\n", schema_list_py) == {'lst': [1, 2]}
-assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_list_py))
-assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_list_py))
 
 # bare repeat(int) as a mapping value behaves the same as [repeat(int)]
 schema_list_bare = {'lst': repeat(int)}
