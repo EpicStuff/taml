@@ -152,7 +152,7 @@ assert taml.loads('a:\n\tb:\n', schema_nested) == {'a': {'b': None}}
 # assert taml.loads("a: '11'\n", schema_nested_call) == Dict({'a': 3})
 
 
-# --- sequence formatting behavior ---
+# --- list formatting behavior ---
 
 schema = taml.loads('''
 	lst:
@@ -187,7 +187,7 @@ assert_raises(RequiredError, lambda: taml.loads("lst: ['1']\n", schema_required_
 # --- type mismatch errors ---
 
 schema_list = taml.loads('x: [int]\n', is_schema=True)
-assert_raises(StructureError, lambda: taml.loads('x: {a: 1}\n', schema_list), "Expected MutableSequence or None, got CommentedMap: {'a': 1} (line 1, col 4)")
+assert_raises(StructureError, lambda: taml.loads('x: {a: 1}\n', schema_list), "Expected list or None, got CommentedMap: {'a': 1} (line 1, col 4)")
 
 schema_dict = taml.loads(
 	'''
@@ -196,9 +196,9 @@ schema_dict = taml.loads(
 	''',
 	is_schema=True,
 )
-assert_raises(StructureError, lambda: taml.loads('x: [1]\n', schema_dict), 'Expected MutableMapping or None, got CommentedSeq: [1] (line 1, col 4)')
+assert_raises(StructureError, lambda: taml.loads('x: [1]\n', schema_dict), 'Expected dict or None, got CommentedSeq: [1] (line 1, col 4)')
 
-assert_raises(StructureError, lambda: taml.loads('x: 1\n', schema_dict), 'Expected MutableMapping or None, got int: 1 (line 1, col 4)')
+assert_raises(StructureError, lambda: taml.loads('x: 1\n', schema_dict), 'Expected dict or None, got int: 1 (line 1, col 4)')
 
 
 # --- taml.repeat semantics (schema parsed from YAML) ---
@@ -265,7 +265,7 @@ assert out == {'cfg': {
 	'backup': {'port': 8081},
 }}
 
-# sequence taml.repeat(int): list of ints, any length
+# taml.repeat(int): list of ints, any length
 schema = taml.loads('''
 items:
 	- taml.repeat(int)
@@ -273,7 +273,7 @@ items:
 assert taml.loads("items: ['1', '2', '3', '4']\n", schema) == {'items': [1, 2, 3, 4]}
 assert taml.loads('items: []\n', schema) == {'items': []}
 
-# sequence with static prefix followed by taml.repeat
+# list with static prefix followed by taml.repeat
 schema = taml.loads('''
 items:
 	- str
@@ -281,7 +281,7 @@ items:
 ''', is_schema=True)
 assert taml.loads("items: ['hello', '1', '2', '3']\n", schema) == {'items': ['hello', 1, 2, 3]}
 
-# sequence repeat with required: each repeated item must be non-null
+# list repeat with required: each repeated item must be non-null
 schema = taml.loads('''
 items:
 	- taml.repeat(taml.required(int))
@@ -291,7 +291,7 @@ try:
 except RequiredError as e:
 	assert str(e) == 'items[1] is required (line 1, col 14)', str(e)
 
-# taml.repeat as a mapping key cannot take a schema argument (positional)
+# taml.repeat as a key cannot take a schema argument (positional)
 # but coerce=False is allowed as a kwarg
 assert_raises(
 	SchemaDefinitionError,
@@ -300,7 +300,7 @@ a:
 	taml.repeat(int):
 		x: taml.required
 ''', is_schema=True),
-	'taml.repeat used as a mapping key cannot take a schema argument at a[*] (line 3, col 2)',
+	'taml.repeat used as a key cannot take a schema argument at a[*] (line 3, col 2)',
 )
 
 # bare taml.repeat (no schema arg) as a value means "list of anything"; null coerces to []
@@ -308,7 +308,7 @@ schema = taml.loads('items: taml.repeat()\n', is_schema=True)
 assert taml.loads('items:\n', schema) == {'items': []}
 assert taml.loads("items: [1, 'a', null]\n", schema) == {'items': [1, 'a', None]}
 
-# same when used as a sequence element
+# same when used as a list element
 schema = taml.loads('''
 items:
 	- taml.repeat
@@ -316,14 +316,14 @@ items:
 assert taml.loads('items:\n', schema) == {'items': []}
 assert taml.loads("items: [1, 'a']\n", schema) == {'items': [1, 'a']}
 
-# taml.repeat as a mapping key requires a nested schema (not null/empty value)
+# taml.repeat as a key requires a nested schema (not null/empty value)
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads('''
 a:
 	taml.repeat:
 ''', is_schema=True),
-	'taml.repeat used as a mapping key requires a nested schema at a[*] (line 3, col 2)',
+	'taml.repeat used as a key requires a nested schema at a[*] (line 3, col 2)',
 )
 assert_raises(
 	SchemaDefinitionError,
@@ -331,10 +331,10 @@ assert_raises(
 a:
 	taml.repeat(): null
 ''', is_schema=True),
-	'taml.repeat used as a mapping key requires a nested schema at a[*] (line 3, col 2)',
+	'taml.repeat used as a key requires a nested schema at a[*] (line 3, col 2)',
 )
 
-# bare taml.repeat (no parens) as a mapping key works like taml.repeat()
+# bare taml.repeat (no parens) as a key works like taml.repeat()
 schema = taml.loads('''
 a:
 	taml.repeat:
@@ -357,7 +357,7 @@ a:
 assert taml.loads('a:\n', schema) == {'a': {}}
 assert taml.loads('a: {}\n', schema) == {'a': {}}
 
-# coerce=False on the mapping-key repeat preserves null
+# coerce=False on the dict key repeat preserves null
 schema = taml.loads('''
 a:
 	taml.repeat(coerce=False):
@@ -376,14 +376,14 @@ schema = taml.loads('items: taml.repeat(int, coerce=False)\n', is_schema=True)
 assert taml.loads('items:\n', schema) == {'items': None}
 assert taml.loads("items: ['1', '2']\n", schema) == {'items': [1, 2]}
 
-# default coerce=True on sequence repeat marker turns null into []
+# default coerce=True on list repeat marker turns null into []
 schema = taml.loads('''
 items:
 	- taml.repeat(int)
 ''', is_schema=True)
 assert taml.loads('items:\n', schema) == {'items': []}
 
-# coerce=False on sequence repeat marker preserves null
+# coerce=False on list repeat marker preserves null
 schema = taml.loads('''
 items:
 	- taml.repeat(int, coerce=False)
@@ -459,7 +459,7 @@ assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_list_py))
 schema_list_py = {'lst': [repeat(int)]}
 assert taml.loads("lst: ['1', '2']\n", schema_list_py) == {'lst': [1, 2]}
 
-# bare repeat(int) as a mapping value behaves the same as [repeat(int)]
+# bare repeat(int) as a value behaves the same as [repeat(int)]
 schema_list_bare = {'lst': repeat(int)}
 assert taml.loads("lst: ['1', '2']\n", schema_list_bare) == {'lst': [1, 2]}
 assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_list_bare))

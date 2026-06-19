@@ -66,10 +66,13 @@ a:
 '''
 out = taml.loads(data, schema1, schema2)
 assert out == {
-	'a': {'a': 3,
+	'a': {
+		'a': 3,
 		'b': datetime.datetime(2000, 4, 24, 12, 36, 16, tzinfo=datetime.timezone.utc),
 		'c': (1, 2, 3),
 		'd': (1.12, 2, {'a': 1, 'b': '1'}, '4'),
 		'e': {'f': 'required value'},
 		},
 	}
+
+print('schema.py: passed')

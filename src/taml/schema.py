@@ -1,5 +1,5 @@
 import ast, builtins, contextlib
-from collections.abc import Callable, MutableMapping, Mapping, MutableSequence, Sequence
+from collections.abc import Callable, MutableMapping, Mapping, MutableSequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,9 +28,9 @@ class strict(schema):
 		'Make sure that func exists.'
 		loc = f' at {path}' if path else ''
 		if func is None:
-			raise SchemaDefinitionError(f'Missing arguments for strict{loc} (line {line+1}, col {col+1})')
+			raise SchemaDefinitionError(f'Missing arguments for strict{loc} (line {line + 1}, col {col + 1})')
 		if isinstance(func, required) and func.func is None:
-			raise SchemaDefinitionError(f'Missing arguments for required inside strict{loc} (line {line+1}, col {col+1})')
+			raise SchemaDefinitionError(f'Missing arguments for required inside strict{loc} (line {line + 1}, col {col + 1})')
 
 		self.path: str = path; self.func: Callable = func
 
@@ -49,20 +49,17 @@ class strict(schema):
 		return data
 @dataclass(eq=False)
 class repeat(schema):
-	'''Schema applies to every entry of the parent collection.
+	r'''Used to define properties of multiple keys or values.
 
-	In a mapping schema, used as a key (``{taml.repeat(): X}``); X is the
-	schema applied to every data value not matched by a static key.
+	Can be used as a key, eg. `taml.repeat(): X` which would equal to `taml.repeat(): X\ntaml.repeat(): X\n...` where X is some schema definition.
+	Or can be used in a list, eg. `key: taml.repeat(X)` or `key: [taml.repeat(X)]` where X gets applied to each value of list.
 
-	In a sequence schema, used as an element (``[taml.repeat(X)]``); X is the
-	schema applied to every data item at or beyond the marker's index.
+	Args:
+		`coerce: bool = True`: turns null data into the empty collection, eg.: `key: ` -> `key: []`
 
-	``coerce`` (default True) turns null data into the empty collection
-	(``[]`` or ``{}``) before iterating, so a missing/null field of a
-	``repeat``-typed slot becomes an empty list/mapping in the output.
 	'''
 
-	schema: Callable | None = None;	coerce: bool = True
+	schema: Callable | None = None; coerce: bool = True
 @dataclass
 class coerce(schema):
 	'''Apply ``func`` to the value even when it is None.
@@ -89,14 +86,14 @@ class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
 	def __init__(self, path: str, line: int, col: int) -> None:
 		assert path, 'look into this'
-		super().__init__(f'{path} is required (line {line+1}, col {col+1})')
+		super().__init__(f'{path} is required (line {line + 1}, col {col + 1})')
 class StrictError(SchemaError, TypeError):
 	def __init__(self, expected: Any, data: Any, line: int, col: int) -> None:
-		super().__init__(f'Expected {expected.__name__}, got {type(data).__name__}: {data!r} (line {line+1}, col {col+1})')
+		super().__init__(f'Expected {expected.__name__}, got {type(data).__name__}: {data!r} (line {line + 1}, col {col + 1})')
 class StructureError(SchemaError, TypeError):
 	def __init__(self, mapping: bool, data: Any, line: int, col: int) -> None:
-		t = 'MutableMapping' if mapping else 'MutableSequence'
-		super().__init__(f'Expected {t} or None, got {type(data).__name__}: {data!r} (line {line+1}, col {col+1})')
+		t = 'dict' if mapping else 'list'
+		super().__init__(f'Expected {t} or None, got {type(data).__name__}: {data!r} (line {line + 1}, col {col + 1})')
 class SchemaDefinitionError(SchemaError, ValueError): ...
 
 class SchemaImportError(SchemaError, ImportError): ...  # pyright: ignore[reportUnsafeMultipleInheritance]
@@ -106,10 +103,10 @@ class ConversionTypeError(SchemaError, TypeError):
 			name = schema.__name__
 		except AttributeError:
 			name = schema
-		super().__init__(f'Cannot convert {data!r} to {name} (line {line+1}, col {col+1})')
+		super().__init__(f'Cannot convert {data!r} to {name} (line {line + 1}, col {col + 1})')
 class ConversionValueError(SchemaError, ValueError):
 	def __init__(self, schema: Callable, data: Any, line: int, col: int) -> None:
-		super().__init__(f'Cannot convert {data!r} to {schema.__name__} (line {line+1}, col {col+1})')
+		super().__init__(f'Cannot convert {data!r} to {schema.__name__} (line {line + 1}, col {col + 1})')
 
 def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None = None, path: str | None = None) -> Any | None:
 	path = path or ''
@@ -128,9 +125,9 @@ def _format_schema(schema: Dict | Any, line: int | None = None, col: int | None 
 				new_key = _resolve(key, k_line, k_col, path=path)
 				new_path = f'{path}[*]'
 				if isinstance(new_key, repeat) and new_key.schema is not None:
-					raise SchemaDefinitionError(f'taml.repeat used as a mapping key cannot take a schema argument at {new_path} (line {k_line+1}, col {k_col+1})')
+					raise SchemaDefinitionError(f'taml.repeat used as a key cannot take a schema argument at {new_path} (line {k_line + 1}, col {k_col + 1})')
 				if schema[key] is None:
-					raise SchemaDefinitionError(f'taml.repeat used as a mapping key requires a nested schema at {new_path} (line {k_line+1}, col {k_col+1})')
+					raise SchemaDefinitionError(f'taml.repeat used as a key requires a nested schema at {new_path} (line {k_line + 1}, col {k_col + 1})')
 			else:
 				new_key = key
 				new_path = f'{path}.{key}' if path else str(key)
@@ -160,14 +157,14 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 			return ast.literal_eval(node)
 
 		# else, convert the node to string
-		seg = ast.get_source_segment(src, node) #or ast.unparse(node)
+		seg = ast.get_source_segment(src, node)  # or ast.unparse(node)
 		# make sure is not stuff like 1 + 2 (ast.BinOp), a if cond else b (ast.IfExp), etc.
 		if isinstance(node, (ast.Name, ast.Attribute, ast.Call)):
 			assert node.lineno == 1, 'look into this'
 			return _resolve(seg, line, col + node.col_offset, path)
 		assert hasattr(node, 'col_offset'), 'look into this'
 		loc = f' at {path}' if path else ''
-		raise SchemaDefinitionError(f'Unsupported expression {seg!r}{loc} (line {line+1}, col {col + node.col_offset+1})')  # pyright: ignore[reportAttributeAccessIssue]
+		raise SchemaDefinitionError(f'Unsupported expression {seg!r}{loc} (line {line + 1}, col {col + node.col_offset + 1})')  # pyright: ignore[reportAttributeAccessIssue]
 	resolved_args = []
 	resolved_kwargs = {}
 
@@ -178,7 +175,7 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 	## if is callable (eg. func(args), func with brackets)
 	if isinstance(parsed, ast.Call):
 		# get func as string
-		func = ast.get_source_segment(src, parsed.func) #or ast.unparse(parsed.func)
+		func = ast.get_source_segment(src, parsed.func)  # or ast.unparse(parsed.func) #@IgnoreException
 		# get each arg
 		resolved_args.extend(node_to_value(src, arg) for arg in parsed.args)
 		# get each kwarg
@@ -202,7 +199,7 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 		func = zresolve(func)
 	except ImportError as e:
 		loc = f' at {path}' if path else ''
-		raise SchemaImportError(f'{e}{loc} (line {line+1}, col {col+1})') from e
+		raise SchemaImportError(f'{e}{loc} (line {line + 1}, col {col + 1})') from e
 	## special stuff for required and strict
 	if func in (required, strict):
 		return func(path, line, col, *resolved_args, **resolved_kwargs)
@@ -228,7 +225,7 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 				repeat_schema = schema[s_key]
 			else:
 				static_keys.append(s_key)
-		# coerce None to an empty mapping when the repeat marker opts in
+		# coerce None to an empty dict when the repeat marker opts in
 		if data is None and repeat_key is not None and repeat_key.coerce:
 			data = Dict()
 		# process each statically-named schema key

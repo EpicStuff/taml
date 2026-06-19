@@ -1,8 +1,8 @@
 'Comprehensive line-number tests for schema error messages.'
-import os, contextlib
+import os
 from pathlib import Path
 
-from epicstuff import s
+from epicstuff import s, run_install_trace
 from taml import taml, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
 from utils import assert_raises
 
@@ -94,7 +94,7 @@ assert_raises(
 assert_raises(
 	StructureError,
 	lambda: taml.loads(DATA_OK.replace('c: [1, 2]', 'c: {z: 1}'), schema),
-	"Expected MutableSequence or None, got CommentedMap: {'z': 1} (line 14, col 6)",
+	"Expected list or None, got CommentedMap: {'z': 1} (line 14, col 6)",
 )
 
 # depth 1, dict expected: config replaced with a scalar (line 3)
@@ -109,7 +109,7 @@ data = s('''
 assert_raises(
 	StructureError,
 	lambda: taml.loads(data, schema),
-	"Expected MutableMapping or None, got str: 'wrong' (line 3, col 9)",
+	"Expected dict or None, got str: 'wrong' (line 3, col 9)",
 )
 
 
