@@ -2,7 +2,7 @@ import datetime, os
 from pathlib import Path
 
 from epicstuff import Dict, run_install_trace, s  # noqa: F401
-from taml import taml, required, strict, repeat, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
+from taml import taml, required, strict, repeat, coerce, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
 from utils import assert_raises
 
 os.chdir(Path(__file__).parent)
@@ -389,6 +389,44 @@ items:
 	- taml.repeat(int, coerce=False)
 ''', is_schema=True)
 assert taml.loads('items:\n', schema) == {'items': None}
+
+
+# --- taml.coerce semantics: run the converter even on null ---
+
+def list_convert(tags):
+	'Convert csv/null/list to a list.'
+	if tags is None:
+		tags = []
+	elif isinstance(tags, str):
+		tags = list(map(str.strip, tags.split(',')))
+	return tags
+
+# plain callable skips null; coerce makes the converter run on it
+schema = taml.loads('a: taml.coerce(int)\n', is_schema=True)
+assert taml.loads('a: "1"\n', schema) == {'a': 1}
+assert_raises(ConversionTypeError, lambda: taml.loads('a: null\n', schema), 'Cannot convert None to int (line 1, col 4)')
+
+# coerce wraps a value-error from the converter, pointing at the value
+assert_raises(ConversionValueError, lambda: taml.loads("a: 'nope'\n", schema), "Cannot convert 'nope' to int (line 1, col 4)")
+
+# coerce(list_convert): csv string, list, and null all become a list
+schema_py = {'tags': coerce(list_convert)}
+assert taml.loads('tags: a, b, c\n', schema_py) == {'tags': ['a', 'b', 'c']}
+assert taml.loads('tags: [a, b]\n', schema_py) == {'tags': ['a', 'b']}
+assert taml.loads('tags: null\n', schema_py) == {'tags': []}
+
+# coerce still does not insert a missing key
+assert 'tags' not in taml.loads('{}\n', schema_py)
+
+# bare coerce() (no func) is a no-op, even on null
+schema_py = {'a': coerce()}
+assert taml.loads('a: 5\n', schema_py) == {'a': 5}
+assert taml.loads('a: null\n', schema_py) == {'a': None}
+
+# defaulting use case: supply a value when the field is null
+schema_py = {'level': coerce(lambda x: x if x is not None else 'info')}
+assert taml.loads('level: null\n', schema_py) == {'level': 'info'}
+assert taml.loads('level: warn\n', schema_py) == {'level': 'warn'}
 
 
 # --- Python dict schemas (constructed directly, not parsed from YAML) ---

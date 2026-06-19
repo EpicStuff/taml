@@ -63,6 +63,27 @@ class repeat(schema):
 	'''
 
 	schema: Callable | None = None;	coerce: bool = True
+@dataclass
+class coerce(schema):
+	'''Apply ``func`` to the value even when it is None.
+
+	Plain callables are skipped on null/missing values so a schema never
+	coerces an absent field. Wrap the callable in ``taml.coerce`` when the
+	converter itself knows how to handle None (e.g. turning null into an
+	empty list), so it runs on an explicit ``null`` too.
+	'''
+
+	func: Callable | None = None
+
+	def __call__(self, data: Any, line: int, col: int, path: str | None = None) -> Any:
+		if self.func is None:
+			return data
+		try:
+			return self.func(data)
+		except TypeError as e:
+			raise ConversionTypeError(self.func, data, line, col) from e
+		except ValueError as e:
+			raise ConversionValueError(self.func, data, line, col) from e
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -185,8 +206,8 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 	## special stuff for required and strict
 	if func in (required, strict):
 		return func(path, line, col, *resolved_args, **resolved_kwargs)
-	## repeat always becomes an instance, even with no args
-	if func is repeat:
+	## repeat and coerce always become an instance, even with no args
+	if func in (repeat, coerce):
 		return func(*resolved_args, **resolved_kwargs)
 	## else, wrap func with args
 	return wrap(func, *resolved_args, **resolved_kwargs) if resolved_args or resolved_kwargs else func
@@ -270,7 +291,7 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 				data[num] = _format_data(data[num], schema.schema, *data.lc.item(num), *data.lc.item(num), path=new_path)
 
 	# format the value
-	elif isinstance(schema, (required, strict)):
+	elif isinstance(schema, (required, strict, coerce)):
 		return schema(data, line, col, path=path)
 	elif callable(schema) and data is not None:
 		try:
