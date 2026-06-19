@@ -9,7 +9,7 @@
 	name = "taml"
 	readme = "README.md"
 	requires-python = ">=3.10"
-	version = "2.0.0"
+	version = "2.1.0"
 
 	[project.urls]
 		Homepage = "https://github.com/EpicStuff/taml"

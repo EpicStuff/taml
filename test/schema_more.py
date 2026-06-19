@@ -2,7 +2,7 @@ import datetime, os
 from pathlib import Path
 
 from epicstuff import Dict, run_install_trace, s  # noqa: F401
-from taml import taml, required, strict, repeat, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
+from taml import taml, required, strict, repeat, macro, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
 from utils import assert_raises
 
 os.chdir(Path(__file__).parent)
@@ -389,6 +389,42 @@ items:
 	- taml.repeat(int, coerce=False)
 ''', is_schema=True)
 assert taml.loads('items:\n', schema) == {'items': None}
+
+
+# --- taml.macro semantics: left-to-right composition ---
+
+def list_convert(tags):
+	'Convert csv/null/list to a list.'
+	if tags is None:
+		tags = []
+	elif isinstance(tags, str):
+		tags = list(map(str.strip, tags.split(',')))
+	return tags
+
+# macro(a, b)(x) == b(a(x))
+schema = taml.loads('a: taml.macro(float, int)\n', is_schema=True)
+assert taml.loads('a: "3.9"\n', schema) == {'a': 3}  # float('3.9') -> 3.9 -> int -> 3
+
+# composes a scalar-splitting converter with a structural repeat stage
+schema_py = {'ports': macro(list_convert, repeat(int))}
+assert taml.loads('ports: 80, 443, 8080\n', schema_py) == {'ports': [80, 443, 8080]}  # plain list from split, then per-element int
+assert taml.loads('ports: [80, "443"]\n', schema_py) == {'ports': [80, 443]}
+assert taml.loads('ports:\n', schema_py) == {'ports': []}  # null forced through every stage
+
+# a bad element points at the value (a converter-built list has no per-item line/col)
+assert_raises(ConversionValueError, lambda: taml.loads('ports: 80, x\n', schema_py), "Cannot convert 'x' to int (line 1, col 8)")
+
+# coerce=True (default) runs every stage on null; coerce=False passes null through untouched
+assert taml.loads('a: null\n', {'a': macro(list_convert)}) == {'a': []}
+assert taml.loads('a: null\n', {'a': macro(list_convert, coerce=False)}) == {'a': None}
+
+# a forced null reaching a converter that can't take it errors at the value
+assert_raises(ConversionTypeError, lambda: taml.loads('a: null\n', {'a': macro(int)}), 'Cannot convert None to int (line 1, col 4)')
+
+# macro resolves to an instance even with no stages (identity passthrough)
+schema = taml.loads('a: taml.macro()\n', is_schema=True)
+assert taml.loads('a: 5\n', schema) == {'a': 5}
+assert taml.loads('a:\n', schema) == {'a': None}
 
 
 # --- Python dict schemas (constructed directly, not parsed from YAML) ---

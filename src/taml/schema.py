@@ -63,6 +63,22 @@ class repeat(schema):
 	'''
 
 	schema: Callable | None = None;	coerce: bool = True
+class macro(schema):
+	'''Apply each stage to the value left-to-right: ``macro(a, b)(x)`` is ``b(a(x))``.
+
+	Stages may be plain converters (called in sequence) or nested schemas
+	(``repeat``/mapping/sequence/``required``/``strict``/``macro``); the latter
+	are routed back through the schema engine so their structure and errors
+	are handled the same as anywhere else.
+
+	``coerce`` (default True) runs every stage even when the value is None, so
+	a stage can turn null into a default or an empty collection. With
+	``coerce=False`` a null value passes through untouched.
+	'''
+
+	def __init__(self, *stages, coerce=True):
+		self.stages: tuple = stages
+		self.coerce: bool = coerce
 
 class SchemaError(YAMLError): ...
 class RequiredError(SchemaError, ValueError):
@@ -185,13 +201,32 @@ def _resolve(src: str, line: int, col: int, path: str) -> Any:
 	## special stuff for required and strict
 	if func in (required, strict):
 		return func(path, line, col, *resolved_args, **resolved_kwargs)
-	## repeat always becomes an instance, even with no args
-	if func is repeat:
+	## repeat and macro always become an instance, even with no args
+	if func in (repeat, macro):
 		return func(*resolved_args, **resolved_kwargs)
 	## else, wrap func with args
 	return wrap(func, *resolved_args, **resolved_kwargs) if resolved_args or resolved_kwargs else func
 
-def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: int = 0, p_col: int = 0, path: str = '') -> Any:
+def _pos_value(data: Any, key: Any, line: int, col: int) -> tuple[int, int]:
+	'Position of a mapping value; falls back to (line, col) when data carries no lc info (e.g. a converter-built dict).'
+	try:
+		return data.lc.value(key)
+	except AttributeError:
+		return line, col
+def _pos_key(data: Any, key: Any, line: int, col: int) -> tuple[int, int]:
+	'Position of a mapping key; falls back to (line, col).'
+	try:
+		return data.lc.key(key)
+	except AttributeError:
+		return line, col
+def _pos_item(data: Any, num: int, line: int, col: int) -> tuple[int, int]:
+	'Position of a sequence item; falls back to (line, col).'
+	try:
+		return data.lc.item(num)
+	except AttributeError:
+		return line, col
+
+def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: int = 0, p_col: int = 0, path: str = '', force: bool = False) -> Any:
 	# if the schema value is a dict
 	if isinstance(schema, Mapping):
 		# data value has to be a dict or none
@@ -218,14 +253,14 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 			if data is None or s_key not in data:
 				_format_data(None, s_value, p_line, p_col, p_line, p_col, path=new_path)
 			else:
-				data[s_key] = _format_data(data.get(s_key), s_value, *data.lc.value(s_key), *data.lc.key(s_key), path=new_path)
+				data[s_key] = _format_data(data.get(s_key), s_value, *_pos_value(data, s_key, line, col), *_pos_key(data, s_key, line, col), path=new_path)
 		# if there is a repeat schema, apply it to remaining data keys
 		if repeat_schema is not None and data is not None:
 			for d_key in list(data):
 				if d_key in static_keys:
 					continue
 				new_path = f'{path}.{d_key}' if path else str(d_key)
-				data[d_key] = _format_data(data[d_key], repeat_schema, *data.lc.value(d_key), *data.lc.key(d_key), path=new_path)
+				data[d_key] = _format_data(data[d_key], repeat_schema, *_pos_value(data, d_key, line, col), *_pos_key(data, d_key, line, col), path=new_path)
 	# if the schema value is list
 	elif isinstance(schema, (list | tuple | set | frozenset)):
 		# data value has to be a list or none
@@ -250,13 +285,13 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 			if data is None or num >= len(data):
 				_format_data(None, s_value, p_line, p_col, p_line, p_col, path=new_path)
 			else:
-				data[num] = _format_data(data[num], s_value, *data.lc.item(num), *data.lc.item(num), path=new_path)
+				data[num] = _format_data(data[num], s_value, *_pos_item(data, num, line, col), *_pos_item(data, num, line, col), path=new_path)
 		# apply repeat to data items at the marker's index and beyond
 		if repeat_idx is not None and data is not None:
 			rep_schema = schema[repeat_idx].schema
 			for num in range(repeat_idx, len(data)):
 				new_path = f'{path}[{num}]'
-				data[num] = _format_data(data[num], rep_schema, *data.lc.item(num), *data.lc.item(num), path=new_path)
+				data[num] = _format_data(data[num], rep_schema, *_pos_item(data, num, line, col), *_pos_item(data, num, line, col), path=new_path)
 
 	# bare repeat instance behaves like a single-element sequence schema: list of `schema.schema`
 	elif isinstance(schema, repeat):
@@ -267,12 +302,19 @@ def _format_data(data: Any, schema: Any, line: int = 0, col: int = 0, p_line: in
 		if data is not None:
 			for num in range(len(data)):
 				new_path = f'{path}[{num}]'
-				data[num] = _format_data(data[num], schema.schema, *data.lc.item(num), *data.lc.item(num), path=new_path)
+				data[num] = _format_data(data[num], schema.schema, *_pos_item(data, num, line, col), *_pos_item(data, num, line, col), path=new_path)
 
+	# macro: apply each stage in sequence, reusing the engine (and force) per stage
+	elif isinstance(schema, macro):
+		if data is None and not schema.coerce:
+			return data
+		for stage in schema.stages:
+			data = _format_data(data, stage, line, col, p_line, p_col, path=path, force=schema.coerce)
+		return data
 	# format the value
 	elif isinstance(schema, (required, strict)):
 		return schema(data, line, col, path=path)
-	elif callable(schema) and data is not None:
+	elif callable(schema) and (data is not None or force):
 		try:
 			return schema(data)
 		except TypeError as e:
