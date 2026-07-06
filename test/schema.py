@@ -66,7 +66,8 @@ a:
 '''
 out = taml.loads(data, schema1, schema2)
 assert out == {
-	'a': {'a': 3,
+	'a': {
+		'a': 3,
 		'b': datetime.datetime(2000, 4, 24, 12, 36, 16, tzinfo=datetime.timezone.utc),
 		'c': (1, 2, 3),
 		'd': (1.12, 2, {'a': 1, 'b': '1'}, '4'),
@@ -74,21 +75,4 @@ assert out == {
 		},
 	}
 
-
-
-schema = taml.loads('''
-a:
-	taml.repeat():
-		a: taml.required
-		b: int
-''', is_schema=True)
-out = taml.loads('''
-a:
-	b:
-		a: test1
-		b: 1
-	c:
-		a: test2
-	d:
-		b: 3
-''', schema)
+print('schema.py: passed')

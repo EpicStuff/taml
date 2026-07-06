@@ -1,8 +1,8 @@
 'Comprehensive line-number tests for schema error messages.'
-import os, contextlib
+import os
 from pathlib import Path
 
-from epicstuff import s
+from epicstuff import s, run_install_trace
 from taml import taml, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
 from utils import assert_raises
 
@@ -94,7 +94,7 @@ assert_raises(
 assert_raises(
 	StructureError,
 	lambda: taml.loads(DATA_OK.replace('c: [1, 2]', 'c: {z: 1}'), schema),
-	"Expected MutableSequence or None, got CommentedMap: {'z': 1} (line 14, col 6)",
+	"Expected list or None, got CommentedMap: {'z': 1} (line 14, col 6)",
 )
 
 # depth 1, dict expected: config replaced with a scalar (line 3)
@@ -109,7 +109,7 @@ data = s('''
 assert_raises(
 	StructureError,
 	lambda: taml.loads(data, schema),
-	"Expected MutableMapping or None, got str: 'wrong' (line 3, col 9)",
+	"Expected dict or None, got str: 'wrong' (line 3, col 9)",
 )
 
 
@@ -160,28 +160,28 @@ assert_raises(
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads(SCHEMA_SRC.replace('port: taml.strict(int)', 'port: taml.strict'), is_schema=True),
-	'Missing arguments for strict (line 3, col 8)',
+	'Missing arguments for strict at config.port (line 3, col 8)',
 )
 
 # depth 3: required inside strict at config.nested.b (line 7)
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads(SCHEMA_SRC.replace('b: taml.strict(int)', 'b: taml.strict(taml.required)'), is_schema=True),
-	'Missing arguments for required inside strict (line 7, col 6)',
+	'Missing arguments for required inside strict at config.nested.b (line 7, col 6)',
 )
 
 # depth 4: unsupported expression (BinOp) at config.nested.d.f (line 11)
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads(SCHEMA_SRC.replace('f: taml.strict(int)', 'f: taml.strict(1+2)'), is_schema=True),
-	"Unsupported expression '1+2' (line 11, col 19)",
+	"Unsupported expression '1+2' at config.nested.d.f (line 11, col 19)",
 )
 
 # depth 2: kwarg unpacking rejection at config.port (line 3)
 assert_raises(
 	SchemaDefinitionError,
 	lambda: taml.loads(SCHEMA_SRC.replace('port: taml.strict(int)', 'port: epicstuff.Dict(**foo)'), is_schema=True),
-	'Keyword argument must be written as name=value (line 3, col 23)',
+	'Keyword argument must be written as name=value at config.port (line 3, col 23)',
 )
 
 
@@ -191,14 +191,14 @@ assert_raises(
 assert_raises(
 	ImportError,
 	lambda: taml.loads(SCHEMA_SRC.replace('port: taml.strict(int)', 'port: some_nonexistent_module.fn'), is_schema=True),
-	"No module named 'some_nonexistent_module' (line 3, col 8)",
+	"No module named 'some_nonexistent_module' at config.port (line 3, col 8)",
 )
 
 # depth 3: missing attribute on a real module at config.nested.b (line 7)
 assert_raises(
 	ImportError,
 	lambda: taml.loads(SCHEMA_SRC.replace('b: taml.strict(int)', 'b: os.path.nonexistent_attr'), is_schema=True),
-	"No module named 'os.path.nonexistent_attr'; 'os.path' is not a package (line 7, col 6)",
+	"No module named 'os.path.nonexistent_attr'; 'os.path' is not a package at config.nested.b (line 7, col 6)",
 )
 
 
