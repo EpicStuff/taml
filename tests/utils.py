@@ -1,7 +1,12 @@
 import re
 from epicstuff import s
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+
+
+# Absolute path to the shared test fixture, so tests don't depend on the process CWD.
+TEST_TAML = Path(__file__).parent / 'test.taml'
 
 
 def assert_raises( exc_type: type[BaseException], fn: Callable[[], Any], msg: str | None = None, strict: bool = True) -> None:

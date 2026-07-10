@@ -1,0 +1,2 @@
+file-pattern = *.py
+quiet-stdout = True
