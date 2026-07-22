@@ -1,11 +1,9 @@
-import os
-import unittest
+import os, unittest
 from pathlib import Path
 
 from epicstuff import s
-from taml import taml, repeat, RequiredError, StructureError, SchemaDefinitionError
+from taml import RequiredError, SchemaDefinitionError, StructureError, repeat, taml
 from utils import assert_raises
-
 
 os.chdir(Path(__file__).parent)
 
@@ -351,6 +349,26 @@ class TestSchemaRepeat(unittest.TestCase):
 			is_schema=True,
 		)
 		assert taml.loads('items:\n', schema) == {'items': None}
+
+	def test_repeat_native_list_marker_converts_items(self):
+		'Verify direct repeat list marker converts native-schema list items.'
+		schema_py = {'lst': [repeat(int)]}
+		assert taml.loads("lst: ['1', '2']\n", schema_py) == {'lst': [1, 2]}
+
+	def test_repeat_native_value_converts_items(self):
+		'Verify direct repeat value converts native-schema list items.'
+		schema_py = {'lst': repeat(int)}
+		assert taml.loads("lst: ['1', '2']\n", schema_py) == {'lst': [1, 2]}
+
+	def test_repeat_native_value_rejects_dict(self):
+		'Verify direct repeat value rejects dict data in native schemas.'
+		schema_py = {'lst': repeat(int)}
+		assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_py))
+
+	def test_repeat_native_value_rejects_scalar(self):
+		'Verify direct repeat value rejects scalar data in native schemas.'
+		schema_py = {'lst': repeat(int)}
+		assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_py))
 
 
 if __name__ == '__main__':

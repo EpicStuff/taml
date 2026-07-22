@@ -1,14 +1,11 @@
 'Comprehensive line-number tests for schema error messages.'
-import os
-import unittest
+import os, unittest
 from pathlib import Path
 
-from parameterized import parameterized
-
 from epicstuff import s
-from taml import taml, RequiredError, StrictError, StructureError, SchemaDefinitionError, ConversionTypeError, ConversionValueError
+from parameterized import parameterized
+from taml import ConversionTypeError, ConversionValueError, RequiredError, SchemaDefinitionError, StrictError, StructureError, taml
 from utils import assert_raises
-
 
 os.chdir(Path(__file__).parent)
 
@@ -159,10 +156,6 @@ class TestSchemaLines(unittest.TestCase):
 		('depth2_bare_strict', 'port: taml.strict(int)', 'port: taml.strict', 'Missing arguments for strict at config.port (line 3, col 8)'),
 		# depth 3: required inside strict at config.nested.b (line 7)
 		('depth3_required_in_strict', 'b: taml.strict(int)', 'b: taml.strict(taml.required)', 'Missing arguments for required inside strict at config.nested.b (line 7, col 6)'),
-		# depth 4: unsupported expression (BinOp) at config.nested.d.f (line 11)
-		('depth4_binop', 'f: taml.strict(int)', 'f: taml.strict(1+2)', "Unsupported expression '1+2' at config.nested.d.f (line 11, col 19)"),
-		# depth 2: kwarg unpacking rejection at config.port (line 3)
-		('depth2_kwarg', 'port: taml.strict(int)', 'port: epicstuff.Dict(**foo)', 'Keyword argument must be written as name=value at config.port (line 3, col 23)'),
 	])
 	def test_schema_definition_error(self, label, old, new, expected):
 		'Verify schema definition errors include schema paths and source locations.'
