@@ -61,10 +61,11 @@ DATA_OK = s('''
 
 
 class TestSchemaLines(unittest.TestCase):
+	'Tests that schema and data errors report accurate paths and source locations.'
 
 	# Sanity: baseline parses cleanly
 	def test_baseline_parses(self):
-		'''Verify the shared line-number fixture parses successfully before mutation tests.'''
+		'Verify the shared line-number fixture parses successfully before mutation tests.'
 		out = taml.loads(DATA_OK, schema)
 		assert out['config']['port'] == 8080
 		assert out['config']['nested']['d']['e'] == 'ev'
@@ -82,7 +83,7 @@ class TestSchemaLines(unittest.TestCase):
 		('depth4_f', 'f: 7', "f: 'q'", "Expected int, got str: 'q' (line 17, col 7)"),
 	])
 	def test_strict_error(self, label, old, new, expected):
-		'''Verify strict errors report data source locations at multiple nesting depths.'''
+		'Verify strict errors report data source locations at multiple nesting depths.'
 		assert_raises(
 			StrictError,
 			lambda: taml.loads(DATA_OK.replace(old, new), schema),
@@ -93,7 +94,7 @@ class TestSchemaLines(unittest.TestCase):
 
 	# depth 3, list expected: config.nested.c at line 14
 	def test_structure_error_list(self):
-		'''Verify list structure errors report the offending data value location.'''
+		'Verify list structure errors report the offending data value location.'
 		assert_raises(
 			StructureError,
 			lambda: taml.loads(DATA_OK.replace('c: [1, 2]', 'c: {z: 1}'), schema),
@@ -102,7 +103,7 @@ class TestSchemaLines(unittest.TestCase):
 
 	# depth 1, dict expected: config replaced with a scalar (line 3)
 	def test_structure_error_dict(self):
-		'''Verify dict structure errors report the offending data value location.'''
+		'Verify dict structure errors report the offending data value location.'
 		data = s('''
 			# scalar config test
 			name: 'hi'
@@ -126,7 +127,7 @@ class TestSchemaLines(unittest.TestCase):
 		('type_error', ConversionTypeError, 'c: [1, 2]', 'c: [[], 2]', 'Cannot convert [] to int (line 14, col 7)'),
 	])
 	def test_conversion_error(self, label, exc, old, new, expected):
-		'''Verify conversion errors report the offending scalar item location.'''
+		'Verify conversion errors report the offending scalar item location.'
 		assert_raises(
 			exc,
 			lambda: taml.loads(DATA_OK.replace(old, new), schema),
@@ -144,7 +145,7 @@ class TestSchemaLines(unittest.TestCase):
 		('depth1_items', "\t- 1\n\t- 'r'", '\t- 1', 'items[1] is required (line 20, col 1)'),
 	])
 	def test_required_error(self, label, old, new, expected):
-		'''Verify required errors report parent locations at multiple nesting depths.'''
+		'Verify required errors report parent locations at multiple nesting depths.'
 		assert_raises(
 			RequiredError,
 			lambda: taml.loads(DATA_OK.replace(old, new), schema),
@@ -164,7 +165,7 @@ class TestSchemaLines(unittest.TestCase):
 		('depth2_kwarg', 'port: taml.strict(int)', 'port: epicstuff.Dict(**foo)', 'Keyword argument must be written as name=value at config.port (line 3, col 23)'),
 	])
 	def test_schema_definition_error(self, label, old, new, expected):
-		'''Verify schema definition errors include schema paths and source locations.'''
+		'Verify schema definition errors include schema paths and source locations.'
 		assert_raises(
 			SchemaDefinitionError,
 			lambda: taml.loads(SCHEMA_SRC.replace(old, new), is_schema=True),
@@ -180,7 +181,7 @@ class TestSchemaLines(unittest.TestCase):
 		('depth3_attr', 'b: taml.strict(int)', 'b: os.path.nonexistent_attr', "No module named 'os.path.nonexistent_attr'; 'os.path' is not a package at config.nested.b (line 7, col 6)"),
 	])
 	def test_import_error(self, label, old, new, expected):
-		'''Verify schema import errors include schema paths and source locations.'''
+		'Verify schema import errors include schema paths and source locations.'
 		assert_raises(
 			ImportError,
 			lambda: taml.loads(SCHEMA_SRC.replace(old, new), is_schema=True),

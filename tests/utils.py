@@ -1,15 +1,28 @@
 import re
-from epicstuff import s
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from epicstuff import s, NewDict
+from taml import taml
 
 # Absolute path to the shared test fixture, so tests don't depend on the process CWD.
-TEST_TAML = Path(__file__).parent / 'test.taml'
+test_taml_path = Path(__file__).parent / 'test.taml'
+test_schame_path = Path(__file__).parent / 'schema.taml'
 
-
-def assert_raises( exc_type: type[BaseException], fn: Callable[[], Any], msg: str | None = None, strict: bool = True) -> None:
+def assert_equals(schema: str, native: dict, data: str, expected: Any) -> None:  # pyright: ignore[reportRedeclaration]
+	'Test schema parsing, then data parsing with both native and parsed schema.'
+	schema: NewDict = taml.loads(schema, is_schema=True)
+	assert schema == native
+	assert taml.loads(data, schema) == expected
+	assert taml.loads(data, native) == expected
+def assert_raises2(schema: str, native: dict, data: str, expected: type[Exception], msg: str | None = None) -> None:  # pyright: ignore[reportRedeclaration]
+	'Parse schema text and assert it equals native, then drive data through both the parsed schema and the native schema, expecting the same result (or, if expected is an exception type, the same error).'
+	schema: NewDict = taml.loads(schema, is_schema=True)
+	assert schema == native
+	assert_raises(expected, lambda: taml.loads(data, schema), msg)
+	assert_raises(expected, lambda: taml.loads(data, native), msg)
+def assert_raises(exc_type: type[BaseException] | tuple[type[BaseException], ...], fn: Callable, msg: str | None = None, strict: bool = True) -> None:
 	try:
 		fn()
 	except exc_type as e:
