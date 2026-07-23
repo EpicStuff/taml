@@ -1,27 +1,55 @@
-import re
-from collections.abc import Callable
+import contextlib, re, tempfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from epicstuff import s, NewDict
+from epicstuff import NewDict, s
 from taml import taml
 
-# Absolute path to the shared test fixture, so tests don't depend on the process CWD.
-test_taml_path = Path(__file__).parent / 'test.taml'
-test_schame_path = Path(__file__).parent / 'schema.taml'
 
-def assert_equals(schema: str, native: dict, data: str, expected: Any) -> None:  # pyright: ignore[reportRedeclaration]
+recorded_values: list[Any] = []
+
+@contextlib.contextmanager
+def create_file(text: str, name: str = 'test.taml') -> Iterator[Path]:
+	'Create a temporary text file and remove it after the test.'
+	with tempfile.TemporaryDirectory() as tmp_dir:
+		path = Path(tmp_dir) / name
+		path.write_text(text)
+		yield path
+
+def recording_converter(value: Any, *, marker: Any = None) -> Any:
+	recorded_values.append((value, marker))
+	return value
+
+def record_then_raise_on_bad(value: Any) -> Any:
+	recorded_values.append((value, None))
+	if value == 'bad':
+		raise RuntimeError('runtime failure')
+	return value
+
+def reset_recorded_values() -> None:
+	recorded_values.clear()
+
+def return_none(_value: Any) -> None:
+	return None
+
+def raise_runtime_error(_value: Any) -> None:
+	raise RuntimeError('runtime failure')
+
+def assert_equals(schema: str, native: Any, data: str, expected: Any) -> None:  # pyright: ignore[reportRedeclaration]
 	'Test schema parsing, then data parsing with both native and parsed schema.'
 	schema: NewDict = taml.loads(schema, is_schema=True)
 	assert schema == native
 	assert taml.loads(data, schema) == expected
 	assert taml.loads(data, native) == expected
-def assert_raises2(schema: str, native: dict, data: str, expected: type[Exception], msg: str | None = None) -> None:  # pyright: ignore[reportRedeclaration]
+
+def assert_raises2(schema: str, native: Any, data: str, expected: type[Exception], msg: str | None = None) -> None:  # pyright: ignore[reportRedeclaration]
 	'Parse schema text and assert it equals native, then drive data through both the parsed schema and the native schema, expecting the same result (or, if expected is an exception type, the same error).'
 	schema: NewDict = taml.loads(schema, is_schema=True)
 	assert schema == native
 	assert_raises(expected, lambda: taml.loads(data, schema), msg)
 	assert_raises(expected, lambda: taml.loads(data, native), msg)
+
 def assert_raises(exc_type: type[BaseException] | tuple[type[BaseException], ...], fn: Callable, msg: str | None = None, strict: bool = True) -> None:
 	try:
 		fn()
@@ -52,4 +80,9 @@ def assert_raises(exc_type: type[BaseException] | tuple[type[BaseException], ...
 				Actual:   {actual}
 		'''))
 		raise error.with_traceback(e.__traceback__) from e
-	raise AssertionError(f'Expected {exc_type.__name__} to be raised')
+	name = (
+		' | '.join(error.__name__ for error in exc_type)
+		if isinstance(exc_type, tuple)
+		else exc_type.__name__
+	)
+	raise AssertionError(f'Expected {name} to be raised')
