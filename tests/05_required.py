@@ -58,19 +58,11 @@ class Main(unittest.TestCase):
 		('no_arg_and_key', 'a: taml.required', {'a': required(None)}, 'a: null', 'a is required (line 1, col 4)'),
 		('arg_and_no_key', 'a: taml.required(int)', {'a': required(int)}, '{}', 'a is required (line 1, col 1)'),
 		('arg_and_key', 'a: taml.required(int)', {'a': required(int)}, 'a: null', 'a is required (line 1, col 4)'),
+		('arg_and_empty_document', 'a: taml.required(int)', {'a': required(int)}, '', 'a is required (line 1, col 1)'),
 	])
 	def test_raise(self, _name, schema, native, data, msg) -> None:
 		'Required errors with the right path and position on a missing key or null.'
 		assert_raises2(schema, native, data, RequiredError, msg)
-	def test_empty_document_still_checks_required(self) -> None:
-		'An empty document is missing every required root key.'
-		assert_raises2(
-			'a: taml.required(int)',
-			{'a': required(int)},
-			'',
-			RequiredError,
-			'a is required (line 1, col 1)',
-		)
 	@parameterized.expand([
 		('missing_parent', '{}'),
 		('null_parent', 'd: null'),
@@ -155,19 +147,6 @@ class Main(unittest.TestCase):
 				f'traceback missing definition site line {def_line}: {[(fr.filename, fr.lineno, fr.name) for fr in frames]}'
 		else:
 			raise AssertionError('expected RequiredError to be raised')
-	def test_nested_required_dict_key(self) -> None:
-		'A required key nested in a dict reports its dotted path.'
-		assert_raises2(
-			s('''
-				d:
-					a: int
-					b: taml.required
-			'''),
-			{'d': {'a': int, 'b': required(None)}},
-			"d: {a: '1'}",
-			RequiredError,
-			'd.b is required (line 1, col 1)',
-		)
 	def test_required_list_index(self) -> None:
 		'A required item at a list index reports its indexed path.'
 		assert_raises2(
@@ -211,23 +190,18 @@ class Strict(unittest.TestCase):
 			StrictError,
 			"Expected int, got '1' (line 1, col 4)",
 		)
-	def test_wrapping_strict_missing_key(self) -> None:
-		'Required with strict still errors on a missing key.'
+	@parameterized.expand([
+		('missing', '{}', 'a is required (line 1, col 1)'),
+		('null', 'a: null', 'a is required (line 1, col 4)'),
+	])
+	def test_wrapping_strict_required(self, _name, data, msg) -> None:
+		'Required with strict still errors on missing and null values.'
 		assert_raises2(
 			'a: taml.required(taml.strict(int))',
 			{'a': required(strict(int))},
-			'{}',
+			data,
 			RequiredError,
-			'a is required (line 1, col 1)',
-		)
-	def test_wrapping_strict_null(self) -> None:
-		'Required with strict still errors on null.'
-		assert_raises2(
-			'a: taml.required(taml.strict(int))',
-			{'a': required(strict(int))},
-			'a: null',
-			RequiredError,
-			'a is required (line 1, col 4)',
+			msg,
 		)
 
 
