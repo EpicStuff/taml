@@ -1,376 +1,279 @@
-import os, unittest
-from pathlib import Path
+# pyright: reportUnknownLambdaType=false, reportMissingParameterType=false
+# ruff: noqa: ANN001
 
-from epicstuff import s
-from taml import RequiredError, SchemaDefinitionError, StructureError, repeat, taml
-from utils import assert_raises
+import inspect, traceback, unittest
+from itertools import product
 
-os.chdir(Path(__file__).parent)
+from epicstuff import run_fix_import, s  # noqa: F401
+from parameterized import parameterized
+from taml import ConversionValueError, RequiredError, StructureError, repeat, required, taml
+
+from .utils import assert_equals, assert_raises2, raise_runtime_error
 
 
-class TestSchemaRepeat(unittest.TestCase):
-	'Tests taml.repeat behavior for dict entries, list items, null coercion, and schema errors.'
+class Dicts(unittest.TestCase):
+	'Test taml.repeat used for dictionary entries.'
 
-	def test_repeat_missing_required_key_reports_data_key(self):
-		'Verify repeat missing required key reports data key.'
-		schema = taml.loads(
+	def test_basic(self) -> None:
+		'Every matching dictionary entry is converted with the repeated schema.'
+		assert_equals(
 			s('''
 				a:
 					taml.repeat():
-						a: taml.required
 						b: int
 			'''),
-			is_schema=True,
-		)
-
-		# 'd' is missing required key 'a', so the error path should include the actual data key
-		data = s('''
-			a:
-				b:
-					a: test1
-					b: 1
-				c:
-					a: test2
-				d:
-					b: 3
-		''')
-		assert_raises(RequiredError, lambda: taml.loads(data, schema), 'a.d.a is required (line 7, col 2)')
-
-	def test_repeat_all_entries_satisfy_schema(self):
-		'Verify repeat all entries satisfy schema.'
-		schema = taml.loads(
-			s('''
-				a:
-					taml.repeat():
-						a: taml.required
-						b: int
-			'''),
-			is_schema=True,
-		)
-
-		# all entries satisfy the repeat schema -> int coercion runs per entry
-		out = taml.loads(
+			{'a': {repeat(): {'b': int}}},
 			s('''
 				a:
 					b:
-						a: test1
+						a: '1'
 						b: 1
 					c:
-						a: test2
+						a: '2'
 						b: '2'
-					d:
-						a: test3
-						b: '3'
 			'''),
-			schema,
+			{
+				'a': {
+					'b': {'a': '1', 'b': 1},
+					'c': {'a': '2', 'b': 2},
+				},
+			},
 		)
-		assert out == {'a': {
-			'b': {'a': 'test1', 'b': 1},
-			'c': {'a': 'test2', 'b': 2},
-			'd': {'a': 'test3', 'b': 3},
-		}}
-
-	def test_repeat_static_key_alongside_repeat(self):
-		'Verify repeat static key alongside repeat.'
-		# static key alongside taml.repeat(): static wins, repeat covers the rest
-		schema = taml.loads(
+	def test_static_key_alongside_repeat(self) -> None:
+		'A static key takes precedence while repeat covers the other entries.'
+		assert_equals(
 			s('''
 				cfg:
-					name: taml.required
+					one:
+					taml.repeat():
+						value: int
+			'''),
+			{'cfg': {'one': None, repeat(): {'value': int}}},
+			s('''
+				cfg:
+					one:
+						value: '1'
+					two:
+						value: '2'
+					three:
+						value: '3'
+			'''),
+			{
+				'cfg': {
+					'one': {'value': '1'},
+					'two': {'value': 2},
+					'three': {'value': 3},
+				},
+			},
+		)
+	def test_bare_equals(self) -> None:
+		'Bare repeat is the same as with brackets.'
+		assert taml.loads('repeat:\n a: int', is_schema=True) == taml.loads('repeat():\n a: int', is_schema=True) == {repeat(): {'a': int}}
+
+	@parameterized.expand([
+		('default_null', 'taml.repeat()', repeat(), 'a:', {'a': {}}),
+		('default_empty', 'taml.repeat()', repeat(), 'a: {}', {'a': {}}),
+		('false_null', 'taml.repeat(coerce=False)', repeat(coerce=False), 'a:', {'a': None}),
+		('false_empty', 'taml.repeat(coerce=False)', repeat(coerce=False), 'a: {}', {'a': {}}),
+	])
+	def test_key_coerce(self, _name, marker, native_marker, data, expected) -> None:
+		'Coerce controls whether null repeated dictionaries become empty dictionaries.'
+		assert_equals(
+			s(f'''
+				a:
+					{marker}:
+						value: int
+			'''),
+			{'a': {native_marker: {'value': int}}},
+			data,
+			expected,
+		)
+
+	def test_missing_repeat_parent_is_not_inserted(self) -> None:
+		'A missing parent does not create an empty repeated dictionary.'
+		assert_equals(
+			s('''
+				cfg:
 					taml.repeat():
 						port: int
 			'''),
-			is_schema=True,
+			{'cfg': {repeat(): {'port': int}}},
+			'{}',
+			{},
 		)
-		out = taml.loads(
+
+	@parameterized.expand([
+		('list', 'cfg: []', 'Expected dict or None, got [] (line 1, col 6)'),
+		('scalar', 'cfg: 1', 'Expected dict or None, got 1 (line 1, col 6)'),
+	])
+	def test_repeat_dictionary_rejects_wrong_structure(self, _name, data, msg) -> None:
+		assert_raises2(
 			s('''
 				cfg:
-					name: my-service
-					primary:
-						port: '8080'
-					backup:
-						port: '8081'
+					taml.repeat():
+						port: int
 			'''),
-			schema,
+			{'cfg': {repeat(): {'port': int}}},
+			data,
+			StructureError,
+			msg,
 		)
-		assert out == {'cfg': {
-			'name': 'my-service',
-			'primary': {'port': 8080},
-			'backup': {'port': 8081},
-		}}
 
-	def test_repeat_int_list_any_length(self):
-		'Verify repeat int list any length.'
-		# taml.repeat(int): list of ints, any length
-		schema = taml.loads(
-			s('''
-				items:
-					- taml.repeat(int)
-			'''),
-			is_schema=True,
+class Lists(unittest.TestCase):
+	'Test taml.repeat used for lists.'
+
+	def test_basic(self) -> None:
+		'A repeated list schema converts every item regardless of length.'
+		assert_equals(
+			'items: taml.repeat(int)',
+			{'items': repeat(int)},
+			"items: ['1', '2', 3, '4']",
+			{'items': [1, 2, 3, 4]},
 		)
-		assert taml.loads("items: ['1', '2', '3', '4']\n", schema) == {'items': [1, 2, 3, 4]}
-
-	def test_repeat_int_list_empty(self):
-		'Verify repeat int list empty.'
-		# taml.repeat(int): list of ints, any length
-		schema = taml.loads(
-			s('''
-				items:
-					- taml.repeat(int)
-			'''),
-			is_schema=True,
+	def test_empty(self) -> None:
+		'A repeated list schema accepts an empty list.'
+		assert_equals(
+			'items: taml.repeat(int)',
+			{'items': repeat(int)},
+			'items: []',
+			{'items': []},
 		)
-		assert taml.loads('items: []\n', schema) == {'items': []}
 
-	def test_repeat_list_static_prefix(self):
-		'Verify repeat list static prefix.'
-		# list with static prefix followed by taml.repeat
-		schema = taml.loads(
+	@parameterized.expand(product(
+		['items: taml.repeat()', 'items: taml.repeat'],
+		[('items:', {'items': []}), ("items: [1, 'a', null]", {'items': [1, 'a', None]})],
+	))
+	def test_bare_and_no_args(self, repeat_str, in_and_out) -> None:
+		'Bare repeat as a value accepts any list item and coerces null to an empty list.'
+		data, out = in_and_out
+		assert_equals(repeat_str, {'items': repeat()}, data, out)
+
+	def test_other_then_repeat(self) -> None:
+		'Static list entries are applied before the repeated suffix.'
+		assert_equals(
 			s('''
 				items:
 					- str
 					- taml.repeat(int)
 			'''),
-			is_schema=True,
+			{'items': [str, repeat(int)]},
+			"items: [0, '1', 2, '3']",
+			{'items': ['0', 1, 2, 3]},
 		)
-		assert taml.loads("items: ['hello', '1', '2', '3']\n", schema) == {'items': ['hello', 1, 2, 3]}
+	def test_repeat_then_other(self) -> None:
+		'Repeat before another list schema describes one nested list value.'
+		assert_equals(
+			s('''
+				items:
+					- taml.repeat(int)
+					- str
+			'''),
+			{'items': [repeat(int), str]},
+			"items: [1, '2', 3]",
+			{'items': [1, 2, '3']},
+		)
+	def test_multiple_repeat(self) -> None:
+		'Multiple repeat entries each describe their own nested list value.'
+		assert_equals(
+			s('''
+				items:
+					- taml.repeat(int)
+					- taml.repeat(str)
+			'''),
+			{'items': [repeat(int), repeat(str)]},
+			"items: [['1', '2'], [3, 4]]",
+			{'items': [[1, 2], ['3', '4']]},
+		)
 
-	def test_repeat_list_required(self):
-		'Verify repeat list required.'
-		# list repeat with required: each repeated item must be non-null
-		schema = taml.loads(
+	@parameterized.expand([
+		('default_null', 'taml.repeat(int)', {'items': repeat(int)}, 'items:', {'items': []}),
+		('default_values', 'taml.repeat(int)', {'items': repeat(int)}, "items: ['1', '2']", {'items': [1, 2]}),
+		('false_null', 'taml.repeat(int, coerce=False)', {'items': repeat(int, coerce=False)}, 'items:', {'items': None}),
+		('false_values', 'taml.repeat(int, coerce=False)', {'items': repeat(int, coerce=False)}, "items: ['1', '2']", {'items': [1, 2]}),
+	])
+	def test_value_coerce(self, _name, marker, native, data, expected) -> None:
+		'Coerce controls whether a null repeated list value becomes an empty list.'
+		assert_equals(f'items: {marker}', native, data, expected)
+
+	def test_repeat_coerce_affects_equality(self) -> None:
+		assert repeat(coerce=True) != repeat(coerce=False)
+
+	def test_missing_value_parent_is_not_inserted(self) -> None:
+		assert_equals('items: taml.repeat(int)', {'items': repeat(int)}, '{}', {})
+	def test_missing_marker_parent_is_not_inserted(self) -> None:
+		assert_equals('items: [taml.repeat(int)]', {'items': [repeat(int)]}, '{}', {})
+
+	@parameterized.expand([
+		('dict', 'lst: {a: 1}', 'Expected list or None, got dict at lst (line 1, col 6)'),
+		('scalar', 'lst: 1', 'Expected list or None, got int (line 1, col 6)'),
+	])
+	def test_value_rejects_wrong_structure(self, _name, data, msg) -> None:
+		assert_raises2('lst: taml.repeat(int)', {'lst': repeat(int)}, data, StructureError, msg)
+
+	def test_unrelated_error_propagates(self) -> None:
+		'Errors other than TypeError and ValueError are not disguised as conversion failures.'
+		assert_raises2(
+			'items: taml.repeat(utils.raise_runtime_error)',
+			{'items': repeat(raise_runtime_error)},
+			'items: [value]',
+			RuntimeError,
+			'runtime failure',
+		)
+	def test_native_traceback_points_to_definition(self) -> None:
+		'A native repeat conversion error includes the schema definition site.'
+		schema = {'items': repeat(int)}; def_line = inspect.currentframe().f_lineno
+		try:
+			taml.loads("items: ['wrong']", schema)
+		except ConversionValueError as e:
+			frames = traceback.extract_tb(e.__traceback__)
+			assert any(fr.name == 'test_native_traceback_points_to_definition' and fr.lineno == def_line for fr in frames), \
+				f'traceback missing definition site line {def_line}: {[(fr.filename, fr.lineno, fr.name) for fr in frames]}'
+		else:
+			raise AssertionError('expected ConversionValueError to be raised')
+
+class Required(unittest.TestCase):
+	def test_required(self) -> None:
+		'Required inside a repeated list schema rejects null items.'
+		assert_raises2(
 			s('''
 				items:
 					- taml.repeat(taml.required(int))
 			'''),
-			is_schema=True,
-		)
-		try:
-			taml.loads("items: ['1', null, '3']\n", schema)
-		except RequiredError as e:
-			assert str(e) == 'items[1] is required (line 1, col 14)', str(e)
-
-	def test_repeat_key_cannot_take_schema_argument(self):
-		'Verify repeat key cannot take schema argument.'
-		# taml.repeat as a key cannot take a schema argument (positional)
-		# but always=False is allowed as a kwarg
-		assert_raises(
-			SchemaDefinitionError,
-			lambda: taml.loads(
-				s('''
-					a:
-						taml.repeat(int):
-							x: taml.required
-				'''),
-				is_schema=True,
-			),
-			'taml.repeat used as a key cannot take a schema argument at a[*] (line 2, col 2)',
-		)
-
-	def test_repeat_bare_value_list_of_anything(self):
-		'Verify repeat bare value list of anything.'
-		# bare taml.repeat (no schema arg) as a value means "list of anything"; null coerces to []
-		schema = taml.loads('items: taml.repeat()\n', is_schema=True)
-		assert taml.loads('items:\n', schema) == {'items': []}
-		assert taml.loads("items: [1, 'a', null]\n", schema) == {'items': [1, 'a', None]}
-
-	def test_repeat_bare_as_list_element(self):
-		'Verify repeat bare as list element.'
-		# same when used as a list element
-		schema = taml.loads(
-			s('''
-				items:
-					- taml.repeat
-			'''),
-			is_schema=True,
-		)
-		assert taml.loads('items:\n', schema) == {'items': []}
-		assert taml.loads("items: [1, 'a']\n", schema) == {'items': [1, 'a']}
-
-	def test_repeat_bare_key_requires_nested_schema(self):
-		'Verify repeat bare key requires nested schema.'
-		# taml.repeat as a key requires a nested schema (not null/empty value)
-		assert_raises(
-			SchemaDefinitionError,
-			lambda: taml.loads(
-				s('''
-					a:
-						taml.repeat:
-				'''),
-				is_schema=True,
-			),
-			'taml.repeat used as a key requires a nested schema at a[*] (line 2, col 2)',
-		)
-
-	def test_repeat_call_key_requires_nested_schema(self):
-		'Verify repeat call key requires nested schema.'
-		# taml.repeat as a key requires a nested schema (not null/empty value)
-		assert_raises(
-			SchemaDefinitionError,
-			lambda: taml.loads(
-				s('''
-					a:
-						taml.repeat(): null
-				'''),
-				is_schema=True,
-			),
-			'taml.repeat used as a key requires a nested schema at a[*] (line 2, col 2)',
-		)
-
-	def test_repeat_bare_key_no_parens_reports_missing_required(self):
-		'Verify repeat bare key without parentheses reports missing required.'
-		# bare taml.repeat (no parens) as a key works like taml.repeat()
-		schema = taml.loads(
-			s('''
-				a:
-					taml.repeat:
-						a: taml.required
-						b: int
-			'''),
-			is_schema=True,
-		)
-		assert_raises(
+			{'items': [repeat(required(int))]},
+			"items: ['1', null, '3']",
 			RequiredError,
-			lambda: taml.loads('a:\n\tb:\n\t\tc: x\n', schema),
-			'a.b.a is required (line 2, col 2)',
+			'items[1] is required (line 1, col 14)',
 		)
-
-	def test_repeat_bare_key_no_parens_accepts_matching_entry(self):
-		'Verify repeat bare key without parentheses accepts matching entry.'
-		# bare taml.repeat (no parens) as a key works like taml.repeat()
-		schema = taml.loads(
-			s('''
-				a:
-					taml.repeat:
-						a: taml.required
-						b: int
-			'''),
-			is_schema=True,
+	def test_required_path_reports_repeated_index(self) -> None:
+		'Required inside repeat reports the actual repeated list index.'
+		assert_raises2(
+			'items: taml.repeat(taml.required(int))',
+			{'items': repeat(required(int))},
+			"items: ['1', '2', null]",
+			RequiredError,
+			'items[2] is required (line 1, col 19)',
 		)
-		assert taml.loads('a:\n\tb:\n\t\ta: ok\n\t\tb: 1\n', schema) == {'a': {'b': {'a': 'ok', 'b': 1}}}
-
-	def test_repeat_key_coerce_default_null_to_empty(self):
-		'Verify repeat key default coerce null to empty.'
-		# default coerce=True turns null data into the empty collection for repeat-bearing schemas
-		schema = taml.loads(
+	def test_nested_required_path_reports_repeated_key(self) -> None:
+		'A required error inside dictionary repeat includes the selected data key.'
+		assert_raises2(
 			s('''
-				a:
+				cfg:
 					taml.repeat():
-						a: taml.required
+						port: taml.required(int)
 			'''),
-			is_schema=True,
-		)
-		assert taml.loads('a:\n', schema) == {'a': {}}
-
-	def test_repeat_key_coerce_default_empty_dict(self):
-		'Verify repeat key default coerce empty dict.'
-		# default coerce=True turns null data into the empty collection for repeat-bearing schemas
-		schema = taml.loads(
+			{'cfg': {repeat(): {'port': required(int)}}},
 			s('''
-				a:
-					taml.repeat():
-						a: taml.required
+				cfg:
+					primary:
+						port: '8080'
+					backup: {}
 			'''),
-			is_schema=True,
+			RequiredError,
+			'cfg.backup.port is required (line 4, col 2)',
 		)
-		assert taml.loads('a: {}\n', schema) == {'a': {}}
-
-	def test_repeat_key_coerce_false_preserves_null(self):
-		'Verify repeat key coerce=False preserves null.'
-		# coerce=False on the dict key repeat preserves null
-		schema = taml.loads(
-			s('''
-				a:
-					taml.repeat(coerce=False):
-						a: taml.required
-			'''),
-			is_schema=True,
-		)
-		assert taml.loads('a:\n', schema) == {'a': None}
-
-	def test_repeat_key_coerce_false_allows_empty_dict(self):
-		'Verify repeat key coerce=False allows empty dict.'
-		# coerce=False on the dict key repeat preserves null
-		schema = taml.loads(
-			s('''
-				a:
-					taml.repeat(coerce=False):
-						a: taml.required
-			'''),
-			is_schema=True,
-		)
-		assert taml.loads('a: {}\n', schema) == {'a': {}}
-
-	def test_repeat_value_coerce_default_null_to_empty(self):
-		'Verify repeat value default coerce null to empty.'
-		# default coerce=True on bare repeat-as-value turns null into []
-		schema = taml.loads('items: taml.repeat(int)\n', is_schema=True)
-		assert taml.loads('items:\n', schema) == {'items': []}
-
-	def test_repeat_value_coerce_default_converts_items(self):
-		'Verify repeat value default coerce converts items.'
-		# default coerce=True on bare repeat-as-value turns null into []
-		schema = taml.loads('items: taml.repeat(int)\n', is_schema=True)
-		assert taml.loads("items: ['1', '2']\n", schema) == {'items': [1, 2]}
-
-	def test_repeat_value_coerce_false_preserves_null(self):
-		'Verify repeat value coerce=False preserves null.'
-		# coerce=False on bare repeat-as-value preserves null
-		schema = taml.loads('items: taml.repeat(int, coerce=False)\n', is_schema=True)
-		assert taml.loads('items:\n', schema) == {'items': None}
-
-	def test_repeat_value_coerce_false_converts_items(self):
-		'Verify repeat value coerce=False converts items.'
-		# coerce=False on bare repeat-as-value preserves null
-		schema = taml.loads('items: taml.repeat(int, coerce=False)\n', is_schema=True)
-		assert taml.loads("items: ['1', '2']\n", schema) == {'items': [1, 2]}
-
-	def test_repeat_list_marker_coerce_default_null_to_empty(self):
-		'Verify repeat list marker default coerce null to empty.'
-		# default coerce=True on list repeat marker turns null into []
-		schema = taml.loads(
-			s('''
-				items:
-					- taml.repeat(int)
-			'''),
-			is_schema=True,
-		)
-		assert taml.loads('items:\n', schema) == {'items': []}
-
-	def test_repeat_list_marker_coerce_false_preserves_null(self):
-		'Verify repeat list marker coerce=False preserves null.'
-		# coerce=False on list repeat marker preserves null
-		schema = taml.loads(
-			s('''
-				items:
-					- taml.repeat(int, coerce=False)
-			'''),
-			is_schema=True,
-		)
-		assert taml.loads('items:\n', schema) == {'items': None}
-
-	def test_repeat_native_list_marker_converts_items(self):
-		'Verify direct repeat list marker converts native-schema list items.'
-		schema_py = {'lst': [repeat(int)]}
-		assert taml.loads("lst: ['1', '2']\n", schema_py) == {'lst': [1, 2]}
-
-	def test_repeat_native_value_converts_items(self):
-		'Verify direct repeat value converts native-schema list items.'
-		schema_py = {'lst': repeat(int)}
-		assert taml.loads("lst: ['1', '2']\n", schema_py) == {'lst': [1, 2]}
-
-	def test_repeat_native_value_rejects_dict(self):
-		'Verify direct repeat value rejects dict data in native schemas.'
-		schema_py = {'lst': repeat(int)}
-		assert_raises(StructureError, lambda: taml.loads('lst: {a: 1}\n', schema_py))
-
-	def test_repeat_native_value_rejects_scalar(self):
-		'Verify direct repeat value rejects scalar data in native schemas.'
-		schema_py = {'lst': repeat(int)}
-		assert_raises(StructureError, lambda: taml.loads('lst: 1\n', schema_py))
 
 
 if __name__ == '__main__':
-	unittest.TestLoader().loadTestsFromTestCase(TestSchemaRepeat).debug()
+	unittest.TestLoader().loadTestsFromTestCase(Dicts).debug()
+	unittest.TestLoader().loadTestsFromTestCase(Lists).debug()
 	print('tests passed')
