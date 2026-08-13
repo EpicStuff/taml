@@ -66,3 +66,4 @@ a:
 3. ask ai for suggestions
 4. update readme with schema info
 5. maybe add taml.default
+- maybe replace print warning with warning
