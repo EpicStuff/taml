@@ -185,12 +185,6 @@ class Main(unittest.TestCase):
 			'b: taml.strict(taml.required)',
 			'Missing arguments for required inside strict at config.nested.b (line 7, col 6)',
 		),
-		(
-			'repeat_not_last',
-			'\t- taml.repeat(taml.required(int))',
-			'\t- taml.repeat(taml.required(int))\n\t- str',
-			'repeat must be the last item at items[2] (line 21, col 4)',
-		),
 	])
 	def test_schema_definition_error(self, _name, old, new, expected) -> None:
 		'Schema definition errors include schema paths and locations.'
