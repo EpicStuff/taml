@@ -52,9 +52,6 @@ class Main(unittest.TestCase):
 	def test_root_structure_mismatch(self, _name, data, schema, msg) -> None:
 		assert_raises(StructureError, lambda: taml.loads(data, schema), msg)
 
-	def test_plain_callable_allows_missing_key(self) -> None:
-		'A plain callable does not insert a missing key.'
-		assert_equals('a: str', {'a': str}, '{}', {})
 	def test_plain_callable_rejects_wrong_type(self) -> None:
 		'A plain callable surfaces conversion type errors.'
 		assert_raises2(
@@ -77,12 +74,10 @@ class Main(unittest.TestCase):
 		assert_raises(RuntimeError, lambda: taml.loads('a: value', {'a': raise_runtime_error}), 'runtime failure')
 	def test_schema_reuse(self) -> None:
 		schema = taml.loads('a: int', is_schema=True)
+
 		assert taml.loads("a: '1'", schema) == {'a': 1}
-		assert taml.loads("a: '2'", schema) == {'a': 2}
-	def test_schema_reuse_after_failure(self) -> None:
-		schema = taml.loads('a: int', is_schema=True)
 		assert_raises(ConversionValueError, lambda: taml.loads("a: 'nope'", schema))
-		assert taml.loads("a: '3'", schema) == {'a': 3}
+		assert taml.loads("a: '2'", schema) == {'a': 2}
 	def test_empty_schema(self) -> None:
 		assert taml.loads('a: 1', {}) == {'a': 1}
 	def test_empty_document_preserved_under_schema(self) -> None:

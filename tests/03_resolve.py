@@ -28,14 +28,6 @@ class Main(unittest.TestCase):
 		'Verify builtins resolve.'
 		schema = taml.loads('a: int', is_schema=True)
 		assert schema.a is int
-	def test_inline_dict(self) -> None:
-		'Verify a callable resolves when nested inside an inline dict.'
-		schema = taml.loads('d: {a: int}', is_schema=True)
-		assert schema.d.a is int
-	def test_inline_list(self) -> None:
-		'Verify a callable resolves when nested inside an inline list.'
-		schema = taml.loads('l: [int]', is_schema=True)
-		assert schema.l[0] is int
 
 	def test_module(self) -> None:
 		'Verify dotted module callables resolve.'

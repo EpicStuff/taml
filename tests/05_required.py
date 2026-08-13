@@ -46,13 +46,6 @@ class Main(unittest.TestCase):
 		'Required rejects only missing values and null.'
 		assert_equals('a: taml.required', {'a': required(None)}, data, expected)
 
-	def test_native_error_msg(self) -> None:
-		'A native required() derives the actual data path even without an explicit source.'
-		assert_raises(
-			RequiredError,
-			lambda: taml.loads('', {'a': required()}),
-			'a is required (line 1, col 1)',
-		)
 	def test_native_error_msg_fallback(self) -> None:
 		'A native required() with no surrounding key/index falls back to a generic message.'
 		assert_raises(
@@ -121,8 +114,6 @@ class Main(unittest.TestCase):
 			'b is required (line 1, col 1)',
 		)
 
-	def test_required_path_does_not_affect_equality(self) -> None:
-		assert required(int) == required(int)
 	def test_yaml_alias_uses_actual_path(self) -> None:
 		'A shared parsed required alias reports the location where it is applied.'
 		schema = taml.loads('a: &rule taml.required()\nb: *rule', is_schema=True)

@@ -74,7 +74,7 @@ class Main(unittest.TestCase):
 	def test_non_mapping_roots(self, _name, value, dumped) -> None:
 		self.assertEqual(taml.dumps(value), dumped)
 		self.assertEqual(taml.loads(dumped), value)
-	@parameterized.expand(product(('# comment', 'null'), sources))
+	@parameterized.expand(product(('', '# comment', 'null'), sources))
 	def test_extra_non_mapping_roots(self, src, source) -> None:
 		'Every supported text source agrees for documents that parse as None.'
 		assert load_text(src, source) is None
