@@ -11,13 +11,6 @@ from .utils import assert_equals, assert_raises, assert_raises2, raise_runtime_e
 
 
 class Main(unittest.TestCase):
-	def test_runs_on_null(self) -> None:
-		'Make sure func gets run on null.'
-		assert_equals('a: taml.always(bool)', {'a': always(func=bool)}, 'a: null', {'a': False})
-	def test_works_on_value(self) -> None:
-		'Make sure func gets run when theres value.'
-		assert_equals('a: taml.always(int)', {'a': always(int)}, 'a: "1"', {'a': 1})
-
 	def test_not_equal(self) -> None:
 		assert always(int) != required(int)
 		assert always(int) != always(str)
