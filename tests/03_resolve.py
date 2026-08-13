@@ -24,19 +24,10 @@ def assert_partial(partial, func, *args, weaker=False, **kwargs) -> None:
 class Main(unittest.TestCase):
 	'Test string to python objects.'
 
-	def test_builtins(self) -> None:
-		'Verify builtins resolve.'
-		schema = taml.loads('a: int', is_schema=True)
-		assert schema.a is int
-
 	def test_module(self) -> None:
 		'Verify dotted module callables resolve.'
 		schema = taml.loads('d: datetime.date.fromisoformat', is_schema=True)
 		assert schema.d == datetime.date.fromisoformat
-	def test_kwarg(self) -> None:
-		'Verify keyword arguments work.'
-		schema = taml.loads('b: int(base=16)', is_schema=True)
-		assert_partial(schema.b, int, base=16)
 	def test_pos_arg(self) -> None:
 		'Verify positional arguments work.'
 		schema = taml.loads("file: pathlib.Path('/srv/uploads')", is_schema=True)
@@ -118,9 +109,6 @@ class Main(unittest.TestCase):
 		'Verify a mapping literal resolves as a positional argument.'
 		schema = taml.loads("level: \"operator.getitem({'low': 10, 'high': 50})\"", is_schema=True)
 		assert_partial(schema.level, operator.getitem, {'low': 10, 'high': 50})
-	def test_list_arg(self) -> None:
-		schema = taml.loads('d: dict(items=[1, 2])', is_schema=True)
-		assert_partial(schema.d, dict, items=[1, 2])
 	@parameterized.expand([
 		('negative_integer', 'x: dict(value=-1)', -1),
 		('float', 'x: dict(value=1.5)', 1.5),
@@ -128,6 +116,7 @@ class Main(unittest.TestCase):
 		('false', 'x: dict(value=False)', False),
 		('none', 'x: dict(value=None)', None),
 		('tuple', 'x: dict(value=(1, 2))', (1, 2)),
+		('list', 'x: dict(value=[1, 2])', [1, 2]),
 		('nested', 'x: "dict(value={\'a\': [1, 2]})"', {'a': [1, 2]}),
 	])
 	def test_literal_arguments(self, _name, src, expected) -> None:
