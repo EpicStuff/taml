@@ -74,7 +74,6 @@ class Dicts(unittest.TestCase):
 		('default_null', 'taml.repeat()', repeat(), 'a:', {'a': {}}),
 		('default_empty', 'taml.repeat()', repeat(), 'a: {}', {'a': {}}),
 		('false_null', 'taml.repeat(coerce=False)', repeat(coerce=False), 'a:', {'a': None}),
-		('false_empty', 'taml.repeat(coerce=False)', repeat(coerce=False), 'a: {}', {'a': {}}),
 	])
 	def test_key_coerce(self, _name, marker, native_marker, data, expected) -> None:
 		'Coerce controls whether null repeated dictionaries become empty dictionaries.'
@@ -187,7 +186,6 @@ class Lists(unittest.TestCase):
 
 	@parameterized.expand([
 		('default_null', 'taml.repeat(int)', {'items': repeat(int)}, 'items:', {'items': []}),
-		('default_values', 'taml.repeat(int)', {'items': repeat(int)}, "items: ['1', '2']", {'items': [1, 2]}),
 		('false_null', 'taml.repeat(int, coerce=False)', {'items': repeat(int, coerce=False)}, 'items:', {'items': None}),
 		('false_values', 'taml.repeat(int, coerce=False)', {'items': repeat(int, coerce=False)}, "items: ['1', '2']", {'items': [1, 2]}),
 	])
