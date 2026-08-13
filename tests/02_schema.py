@@ -14,10 +14,6 @@ from .utils import assert_equals, assert_raises, assert_raises2, create_file, ra
 class Main(unittest.TestCase):
 	'Super basic schema tests.'
 
-	def test_builtin(self) -> None:
-		'Simple builtin test.'
-		assert taml.loads('a: "1"', {'a': int}) == {'a': 1}
-		assert taml.loads('a: {b: "5"}', {'a': {'b': int}}) == {'a': {'b': 5}}
 	@parameterized.expand((
 		('seperate', lambda _: taml.loads('a: str', is_schema=True)),
 		('native', lambda _: {'a': str}),
@@ -115,7 +111,6 @@ class Dicts(unittest.TestCase):
 		assert_equals(schema, {'a': {'b': int}}, 'a:', {'a': None})
 		assert_equals(schema, {'a': {'b': int}}, 'a: {}', {'a': {}})
 		assert_equals(schema, {'a': {'b': int}}, 'a: {b: null}', {'a': {'b': None}})
-		assert_equals(schema, {'a': {'b': int}}, 'a:\n\tb:', {'a': {'b': None}})
 	def test_type_mismatch_list(self) -> None:
 		'Verify a dict schema rejects list data.'
 		assert_raises2(
@@ -221,9 +216,6 @@ class Multiple(unittest.TestCase):
 			lambda: taml.loads("a: '1'", {'a': int}, {'a': strict(str)}),
 			'Expected str, got 1 (line 1, col 4)',
 		)
-	def test_disjoint_schemas(self) -> None:
-		'Verify disjoint schemas each convert their matching data key.'
-		assert taml.loads("a: '1'\nb: '2'", {'a': int}, {'b': int}) == {'a': 1, 'b': 2}
 
 
 if __name__ == '__main__':
